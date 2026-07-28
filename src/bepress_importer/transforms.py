@@ -56,6 +56,10 @@ _DOI_RE = re.compile(r"(10\.\d{4,9}/\S+)", re.IGNORECASE)
 @transform("identifier")
 def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
     """Value → {"identifier": ..., "scheme": args["scheme"]}, normalizing DOIs."""
+    if "split" in args:
+        value = value.split(args["split"])[0].strip()
+        if not value:
+            return None
     if args.get("normalize") == "doi":
         match = _DOI_RE.search(value)
         if match:
@@ -107,6 +111,15 @@ def language_list(value: str, row: dict[str, str], args: dict) -> object | None:
     """Comma-separated language codes → [{"id": code}, ...]."""
     codes = [code.strip().lower() for code in value.split(",")]
     return [{"id": code} for code in codes if code] or None
+
+
+@transform("additional_description")
+def additional_description(value: str, row: dict[str, str], args: dict) -> object | None:
+    """HTML-ish note → InvenioRDM additional_descriptions entry list."""
+    text = strip_html(value, row, {})
+    if not text:
+        return None
+    return [{"description": text, "type": {"id": args.get("type", "other")}}]
 
 
 _CC_LICENSE_RE = re.compile(
