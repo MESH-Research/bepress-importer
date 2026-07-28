@@ -65,6 +65,12 @@ class TestIdentifier:
             "scheme": "isbn",
         }
 
+    def test_split_arg_takes_first_segment(self):
+        # Bepress ISBN cells like "9781684480166; eISBN; PDF"
+        assert apply(
+            "identifier", "9781684480166; eISBN; PDF", args={"scheme": "isbn", "split": ";"}
+        ) == {"identifier": "9781684480166", "scheme": "isbn"}
+
 
 class TestSplit:
     def test_splits_and_strips_and_drops_empties(self):
