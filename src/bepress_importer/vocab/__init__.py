@@ -1,4 +1,4 @@
-"""Bundled KC Works vocabulary snapshots (refresh with `bpress-importer vocab sync`)."""
+"""Bundled KC Works vocabulary snapshots (refresh with `bepress-importer vocab sync`)."""
 
 from __future__ import annotations
 

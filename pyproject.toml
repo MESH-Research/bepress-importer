@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-bpress-importer = "bepress_importer.cli:cli"
+bepress-importer = "bepress_importer.cli:cli"
 
 [dependency-groups]
 dev = [

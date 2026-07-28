@@ -1,5 +1,5 @@
 {
-  "_comment": "ISO 639-3 codes seen in scholarly repository data (common subset). Refresh with: bpress-importer vocab sync",
+  "_comment": "ISO 639-3 codes seen in scholarly repository data (common subset). Refresh with: bepress-importer vocab sync",
   "ids": [
     "afr", "amh", "ara", "aze", "bel", "ben", "bos", "bul", "cat", "ces",
     "chi", "cym", "dan", "deu", "ell", "eng", "epo", "est", "eus", "fas",

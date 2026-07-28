@@ -43,7 +43,7 @@ def sync_vocabularies(
         snapshot: dict = {}
         if snapshot_path.exists():
             snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-        snapshot["_comment"] = f"Synced from {api_url} via: bpress-importer vocab sync"
+        snapshot["_comment"] = f"Synced from {api_url} via: bepress-importer vocab sync"
         snapshot["ids"] = ids
         if name == "resource_types":
             snapshot.setdefault("aliases", {})

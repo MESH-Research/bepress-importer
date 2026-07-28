@@ -10,7 +10,7 @@ Requires Python ≥ 3.12 and [uv](https://docs.astral.sh/uv/):
 
 ```sh
 uv sync
-uv run bpress-importer --help
+uv run bepress-importer --help
 ```
 
 ## Pipeline overview
@@ -31,38 +31,38 @@ history of every field survives for audit.
 
 ```sh
 # 1. See what is in the export and how well the profile covers it
-uv run bpress-importer inspect "Data/Export.xls" --profile profiles/bucknell.toml
+uv run bepress-importer inspect "Data/Export.xls" --profile profiles/bucknell.toml
 
 # 2. Convert to per-collection KC Works JSON (one file per sheet/collection).
 #    Pass --as-of for byte-reproducible output (embargo decisions).
-uv run bpress-importer convert "Data/Export.xls" \
+uv run bepress-importer convert "Data/Export.xls" \
     --profile profiles/bucknell.toml -o converted --as-of 2026-07-28
 
 # 3. Validate against KC Works vocabularies and field rules (read-only)
-uv run bpress-importer check converted --as-of 2026-07-28
+uv run bepress-importer check converted --as-of 2026-07-28
 
 # 4. Interactively accept proposed fixes (y/n/a=all for rule/s=skip rule/q=quit).
 #    Accepted changes are appended to wrangling.json and wrangled/ is regenerated.
-uv run bpress-importer fix converted --log wrangling.json -o wrangled --as-of 2026-07-28
+uv run bepress-importer fix converted --log wrangling.json -o wrangled --as-of 2026-07-28
 
 # 5. Fix the stragglers by hand — equally logged
-uv run bpress-importer edit converted --log wrangling.json -o wrangled \
+uv run bepress-importer edit converted --log wrangling.json -o wrangled \
     --record 11805300 --field /metadata/identifiers/2 --unset --note "junk DOI"
 
 # 6. Review the history at any time
-uv run bpress-importer history --log wrangling.json [--record ID] [--field PTR]
+uv run bepress-importer history --log wrangling.json [--record ID] [--field PTR]
 cat wrangling.log        # the same story as plaintext, one line per change
 
 # 7. Undo, if needed (appends revert events; then re-apply)
-uv run bpress-importer undo --log wrangling.json --change 7            # head of its chain
-uv run bpress-importer undo --log wrangling.json --change 3 --cascade  # + everything above it
-uv run bpress-importer undo --log wrangling.json --record 11805300     # whole record
-uv run bpress-importer apply converted --log wrangling.json -o wrangled
+uv run bepress-importer undo --log wrangling.json --change 7            # head of its chain
+uv run bepress-importer undo --log wrangling.json --change 3 --cascade  # + everything above it
+uv run bepress-importer undo --log wrangling.json --record 11805300     # whole record
+uv run bepress-importer apply converted --log wrangling.json -o wrangled
 
 # 8. Upload one collection at a time (each file targets one KC Works collection)
 export KCWORKS_IMPORT_API_KEY=...   # never passed on the command line
-uv run bpress-importer upload wrangled/fac_journ.json --collection-id <id> --dry-run
-uv run bpress-importer upload wrangled/fac_journ.json --collection-id <id>
+uv run bepress-importer upload wrangled/fac_journ.json --collection-id <id> --dry-run
+uv run bepress-importer upload wrangled/fac_journ.json --collection-id <id>
 ```
 
 `upload` writes `<file>.receipts.json` mapping each record's `import-recid` to
@@ -93,7 +93,7 @@ JSON-pointer targets, transform names and value maps — so a new client export
 means a new profile, not new code.
 
 ```sh
-uv run bpress-importer inspect "Data/NewClient.xls" --scaffold > profiles/newclient.toml
+uv run bepress-importer inspect "Data/NewClient.xls" --scaffold > profiles/newclient.toml
 ```
 
 Transforms available to profiles: `edtf_date` (with season support),
@@ -110,7 +110,7 @@ Validation runs offline against committed snapshots in
 reviewable before it changes validation behaviour):
 
 ```sh
-uv run bpress-importer vocab sync --api-url https://works.hcommons.org
+uv run bepress-importer vocab sync --api-url https://works.hcommons.org
 ```
 
 ## Development

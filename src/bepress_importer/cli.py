@@ -1,4 +1,4 @@
-"""bpress-importer command line interface."""
+"""bepress-importer command line interface."""
 
 from __future__ import annotations
 

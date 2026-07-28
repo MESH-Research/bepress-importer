@@ -1,5 +1,5 @@
 {
-  "_comment": "KC Works resource_type vocabulary snapshot (from the API docs, 2026-07). Refresh with: bpress-importer vocab sync",
+  "_comment": "KC Works resource_type vocabulary snapshot (from the API docs, 2026-07). Refresh with: bepress-importer vocab sync",
   "ids": [
     "audiovisual-audioRecording",
     "audiovisual-documentary",

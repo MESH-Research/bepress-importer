@@ -1,5 +1,5 @@
 {
-  "_comment": "KC Works rights vocabulary snapshot (CC subset). Refresh with: bpress-importer vocab sync",
+  "_comment": "KC Works rights vocabulary snapshot (CC subset). Refresh with: bepress-importer vocab sync",
   "ids": [
     "arr",
     "cc0-1.0",
