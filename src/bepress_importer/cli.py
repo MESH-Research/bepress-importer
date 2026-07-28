@@ -357,3 +357,25 @@ def vocab_sync_cmd(api_url, dest_dir) -> None:
     counts = sync_vocabularies(api_url, vocab_dir=dest_dir or VOCAB_DIR)
     for name, count in counts.items():
         click.echo(f"{name}: {count} ids")
+
+
+@cli.command()
+@click.argument("metadata_file", type=click.Path(exists=True, dir_okay=False))
+@click.option("--collection-id", required=True)
+@click.option("--api-url", default=None,
+              help="Base URL (default: $KCWORKS_IMPORT_API_URL or https://works.hcommons.org).")
+@click.option("--api-key-env", default=None,
+              help="Environment variable holding the bearer token "
+                   "(default: KCWORKS_IMPORT_API_KEY).")
+@click.option("--api-key-file", type=click.Path(exists=True, dir_okay=False), default=None,
+              help="Read the bearer token from this file instead.")
+@click.option("--receipts", "receipts_path", type=click.Path(dir_okay=False), default=None,
+              help="Where to write per-record receipts (default: <metadata>.receipts.json).")
+@click.option("--dry-run", is_flag=True, help="Validate and describe the request; POST nothing.")
+@click.option("--notify-record-owners", is_flag=True)
+@click.option("--review-required/--no-review-required", "review_required", default=None)
+@click.option("--strict-validation/--no-strict-validation", "strict_validation", default=None)
+def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, receipts_path,
+           dry_run, notify_record_owners, review_required, strict_validation) -> None:
+    """Upload a finished per-collection JSON file to the KC Works Import API."""
+    raise NotImplementedError
