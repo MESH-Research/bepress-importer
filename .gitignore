@@ -1,3 +1,27 @@
-Data
-.claude
+# Client data — never commit
+Data/
 
+# AI assistant files — never commit
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.superpowers/
+SKILLS/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Pipeline outputs (generated, per-engagement)
+converted/
+wrangled/
+wrangling.json
+wrangling.log
+receipts.json
