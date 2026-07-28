@@ -129,6 +129,17 @@ class TestLanguageList:
         assert apply("language_list", "ENG") == [{"id": "eng"}]
 
 
+class TestAdditionalDescription:
+    def test_wraps_cleaned_text_in_invenio_structure(self):
+        assert apply("additional_description", "<p>Co-Author: Jane Doe</p>") == [
+            {"description": "Co-Author: Jane Doe", "type": {"id": "other"}}
+        ]
+
+    def test_type_is_configurable(self):
+        result = apply("additional_description", "Methods notes", args={"type": "methods"})
+        assert result == [{"description": "Methods notes", "type": {"id": "methods"}}]
+
+
 class TestLicenseUrl:
     @pytest.mark.parametrize(
         ("raw", "expected"),
