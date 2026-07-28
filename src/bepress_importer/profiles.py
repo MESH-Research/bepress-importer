@@ -7,6 +7,8 @@ client export means a new profile file, not new code.
 
 from __future__ import annotations
 
+import fnmatch
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -94,9 +96,140 @@ class Profile:
 
     def match_sheet(self, sheet_name: str) -> SheetProfile | None:
         """Return the first sheet profile whose match pattern fits, else None."""
-        raise NotImplementedError
+        for sheet in self.sheets:
+            if fnmatch.fnmatchcase(sheet_name, sheet.match):
+                return sheet
+        return None
 
 
 def load_profile(path: str | Path, known_transforms: set[str] | None = None) -> Profile:
     """Load and validate a TOML profile. Raises ProfileError with context."""
-    raise NotImplementedError
+    path = Path(path)
+    try:
+        with open(path, "rb") as handle:
+            data = tomllib.load(handle)
+    except tomllib.TOMLDecodeError as exc:
+        raise ProfileError(f"{path}: invalid TOML: {exc}") from exc
+
+    head = data.get("profile", {})
+    name = head.get("name")
+    if not name:
+        raise ProfileError(f"{path}: [profile] section with a 'name' key is required")
+
+    defaults = _parse_defaults(data.get("defaults", {}))
+    sheets = tuple(
+        _parse_sheet(path, i, raw, known_transforms)
+        for i, raw in enumerate(data.get("sheet", []))
+    )
+    return Profile(name=name, defaults=defaults, sheets=sheets)
+
+
+def _parse_defaults(raw: dict) -> Defaults:
+    authors_raw = raw.get("author_columns", {})
+    return Defaults(
+        record_id_column=raw.get("record_id", {}).get("column", "context_key"),
+        url_column=raw.get("url_identifier", {}).get("column"),
+        files_enabled=raw.get("files_enabled", False),
+        season_style=raw.get("season_style", "edtf-season"),
+        authors=AuthorColumns(
+            prefix=authors_raw.get("prefix", "author"),
+            max=authors_raw.get("max", 32),
+        ),
+    )
+
+
+def _parse_sheet(
+    path: Path, index: int, raw: dict, known_transforms: set[str] | None
+) -> SheetProfile:
+    where = f"{path}: [[sheet]] #{index + 1}"
+    match = raw.get("match")
+    if not match:
+        raise ProfileError(f"{where}: 'match' is required")
+
+    fields = []
+    seen_targets: set[str] = set()
+    for f_raw in raw.get("field", []):
+        source, target = f_raw.get("source"), f_raw.get("target")
+        if not source or not target:
+            raise ProfileError(f"{where}: every field needs 'source' and 'target'")
+        if not target.startswith("/"):
+            raise ProfileError(f"{where}: target {target!r} must be a JSON pointer starting with '/'")
+        if target in seen_targets:
+            raise ProfileError(f"{where}: duplicate target {target!r}")
+        seen_targets.add(target)
+        transform = f_raw.get("transform")
+        if transform and known_transforms is not None and transform not in known_transforms:
+            raise ProfileError(f"{where}: unknown transform {transform!r} for source {source!r}")
+        fields.append(
+            FieldMapping(
+                source=source,
+                target=target,
+                transform=transform,
+                args=dict(f_raw.get("args", {})),
+                required=f_raw.get("required", False),
+            )
+        )
+
+    resource_type = None
+    if "resource_type" in raw:
+        rt_raw = raw["resource_type"]
+        resource_type = ResourceTypeMapping(
+            column=rt_raw.get("column"),
+            map=dict(rt_raw.get("map", {})),
+            default=rt_raw.get("default"),
+            constant=rt_raw.get("constant"),
+        )
+        if not resource_type.column and not resource_type.constant:
+            raise ProfileError(f"{where}: resource_type needs a 'column' or a 'constant'")
+
+    journal = None
+    if "journal" in raw:
+        j_raw = raw["journal"]
+        pages = j_raw.get("pages", {})
+        journal = JournalMapping(
+            title=j_raw.get("title"),
+            volume=j_raw.get("volume"),
+            issue=j_raw.get("issue"),
+            issn=j_raw.get("issn"),
+            pages_first=pages.get("first"),
+            pages_last=pages.get("last"),
+        )
+
+    imprint = None
+    if "imprint" in raw:
+        i_raw = raw["imprint"]
+        imprint = ImprintMapping(
+            title=i_raw.get("title"),
+            isbn=i_raw.get("isbn"),
+            place=i_raw.get("place"),
+            pages=i_raw.get("pages"),
+        )
+
+    contributors = None
+    if "contributors" in raw:
+        c_raw = raw["contributors"]
+        if not c_raw.get("prefix") or not c_raw.get("role"):
+            raise ProfileError(f"{where}: contributors needs 'prefix' and 'role'")
+        contributors = ContributorColumns(
+            prefix=c_raw["prefix"],
+            max=c_raw.get("max", 5),
+            role=c_raw["role"],
+        )
+
+    constants = dict(raw.get("constants", {}))
+    for pointer in constants:
+        if not pointer.startswith("/"):
+            raise ProfileError(
+                f"{where}: constant key {pointer!r} must be a JSON pointer starting with '/'"
+            )
+
+    return SheetProfile(
+        match=match,
+        resource_type=resource_type,
+        fields=tuple(fields),
+        journal=journal,
+        imprint=imprint,
+        contributors=contributors,
+        constants=constants,
+        collection=raw.get("collection"),
+    )
