@@ -22,7 +22,7 @@ def load_collections(data_dir: str | Path) -> dict[str, list[dict]]:
 
     collections = {}
     for path in sorted(Path(data_dir).glob("*.json")):
-        if path.name == "report.json":
+        if path.name == "report.json" or not path.is_file():
             continue
         collections[path.name] = json.loads(path.read_text(encoding="utf-8"))
     if not collections:
