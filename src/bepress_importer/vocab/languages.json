@@ -1,0 +1,13 @@
+{
+  "_comment": "ISO 639-3 codes seen in scholarly repository data (common subset). Refresh with: bpress-importer vocab sync",
+  "ids": [
+    "afr", "amh", "ara", "aze", "bel", "ben", "bos", "bul", "cat", "ces",
+    "chi", "cym", "dan", "deu", "ell", "eng", "epo", "est", "eus", "fas",
+    "fin", "fra", "gle", "glg", "grc", "heb", "hin", "hrv", "hun", "hye",
+    "ind", "isl", "ita", "jpn", "kat", "kaz", "khm", "kor", "kur", "lat",
+    "lav", "lit", "mkd", "mlt", "mon", "msa", "nld", "nor", "pan", "pol",
+    "por", "ron", "rus", "slk", "slv", "spa", "sqi", "srp", "swa", "swe",
+    "tam", "tel", "tgl", "tha", "tur", "ukr", "urd", "uzb", "vie", "yid",
+    "zho", "zul"
+  ]
+}
