@@ -1,0 +1,112 @@
+[
+  {
+    "custom_fields": {
+      "journal:journal": {
+        "issue": "4",
+        "pages": "347-362",
+        "title": "Journal of Scholarly Publishing",
+        "volume": "43"
+      },
+      "kcr:discipline": "Arts, Humanities",
+      "kcr:institution_department": "English",
+      "kcr:publication_url": "https://pub.example.org/x",
+      "kcr:user_defined_tags": [
+        "open access",
+        "publishing"
+      ]
+    },
+    "files": {
+      "enabled": false
+    },
+    "metadata": {
+      "creators": [
+        {
+          "affiliations": [
+            {
+              "name": "Modern Languages Association"
+            }
+          ],
+          "person_or_org": {
+            "family_name": "Fitzpatrick",
+            "given_name": "Kathleen",
+            "name": "Fitzpatrick, Kathleen",
+            "type": "personal"
+          },
+          "role": {
+            "id": "author"
+          }
+        },
+        {
+          "person_or_org": {
+            "name": "Bucknell University",
+            "type": "organizational"
+          },
+          "role": {
+            "id": "author"
+          }
+        }
+      ],
+      "description": "Open access & more",
+      "identifiers": [
+        {
+          "identifier": "2404130",
+          "scheme": "import-recid"
+        },
+        {
+          "identifier": "https://dc.example.edu/fac_journ/80",
+          "scheme": "url"
+        },
+        {
+          "identifier": "10.3138/jsp.43.4.347",
+          "scheme": "doi"
+        }
+      ],
+      "publication_date": "2012-23",
+      "resource_type": {
+        "id": "textDocument-journalArticle"
+      },
+      "title": "Giving It Away"
+    }
+  },
+  {
+    "access": {
+      "embargo": {
+        "active": true,
+        "until": "2029-06-01"
+      }
+    },
+    "files": {
+      "enabled": false
+    },
+    "metadata": {
+      "creators": [
+        {
+          "person_or_org": {
+            "family_name": "Smith",
+            "given_name": "John Q.",
+            "name": "Smith, John Q., Jr.",
+            "type": "personal"
+          },
+          "role": {
+            "id": "author"
+          }
+        }
+      ],
+      "identifiers": [
+        {
+          "identifier": "2404131",
+          "scheme": "import-recid"
+        },
+        {
+          "identifier": "https://dc.example.edu/fac_journ/81",
+          "scheme": "url"
+        }
+      ],
+      "publication_date": "1998",
+      "resource_type": {
+        "id": "textDocument-magazineArticle"
+      },
+      "title": "Second Paper"
+    }
+  }
+]
