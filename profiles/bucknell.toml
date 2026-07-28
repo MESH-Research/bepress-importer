@@ -1,0 +1,515 @@
+# Bucknell University Bepress export → KC Works mapping profile.
+#
+# Deliberately unmapped columns (documented, not accidental):
+#   all sheets:  ctmtime (Bepress internal timestamp), season (consumed via
+#                edtf_date's season_column arg), issue (consumed as the
+#                collection slug)
+#   Fac Journal Articles: comments (admin notes, often co-author HTML),
+#                custom_citation, open_access (workflow flag), pub_statement
+#                (publisher boilerplate), department2 (kcr:institution_department
+#                is single-valued), update_reason
+#   Theses:      concentration, multimedia_url/multimedia_format (streaming
+#                embeds with no KC Works equivalent)
+#   Books/Press: cover_image_url (empty), create_openurl, update_reason,
+#                bu_type ("text; NNN pages"), rights (long copyright prose),
+#                multimedia_url/format
+#   Digital Scholarship: custom_dates, project_type, material_type, audience,
+#                copyright_note (all empty in the export), custom_citation,
+#                second_department
+#   DSSRF:       rights (copyright prose), custom_citation
+#   Podcasts:    contributor (mixed free-text names+affiliations), duration,
+#                rights (copyright prose)
+
+[profile]
+name = "bucknell"
+schema_version = 1
+
+[defaults]
+record_id.column = "context_key"
+url_identifier.column = "calc_url"
+files_enabled = false
+season_style = "edtf-season"
+
+[defaults.author_columns]
+prefix = "author"
+max = 32
+
+# ---------------------------------------------------------------- journals
+[[sheet]]
+match = "Fac Journal Articles"
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { article = "textDocument-journalArticle", book_contribution = "textDocument-bookSection", popular_press = "textDocument-magazineArticle", other = "textDocument-other" }
+  default = "textDocument-journalArticle"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "pub_link"
+  target = "/custom_fields/kcr:publication_url"
+  transform = "url"
+
+  [[sheet.field]]
+  source = "doi"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "doi", normalize = "doi" }
+
+  [[sheet.field]]
+  source = "embargo_date"
+  target = "/access"
+  transform = "embargo"
+
+  [sheet.journal]
+  title = "src_journal"
+  volume = "volnum"
+  issue = "issnum"
+  pages = { first = "fpage", last = "lpage" }
+
+# ---------------------------------------------------------------- theses
+[[sheet]]
+match = "Masters Theses"
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { masters_thesis = "textDocument-thesis", masters_thesis_b = "textDocument-thesis" }
+  default = "textDocument-thesis"
+
+  [sheet.contributors]
+  prefix = "advisor"
+  max = 3
+  role = "committeeMember"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "degree_name"
+  target = "/custom_fields/kcr:degree"
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "department2"
+  target = "/custom_fields/kcr:sponsoring_institution"
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+
+  [[sheet.field]]
+  source = "embargo_date"
+  target = "/access"
+  transform = "embargo"
+
+  [sheet.constants]
+  "/custom_fields/thesis:university" = "Bucknell University"
+
+[[sheet]]
+match = "Honors Theses"
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { honors_thesis = "textDocument-thesis", honors_thesis_b = "textDocument-thesis" }
+  default = "textDocument-thesis"
+
+  [sheet.contributors]
+  prefix = "advisor"
+  max = 3
+  role = "committeeMember"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "degree_name"
+  target = "/custom_fields/kcr:degree"
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "embargo_date"
+  target = "/access"
+  transform = "embargo"
+
+  [sheet.constants]
+  "/custom_fields/thesis:university" = "Bucknell University"
+
+# ---------------------------------------------------------------- books
+[[sheet]]
+match = "BU Authored Books"
+
+  [sheet.resource_type]
+  constant = "textDocument-book"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "publisher"
+  target = "/metadata/publisher"
+
+  [[sheet.field]]
+  source = "identifier"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "isbn" }
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "buy_link"
+  target = "/custom_fields/kcr:publication_url"
+  transform = "url"
+
+  [sheet.imprint]
+  place = "city"
+
+[[sheet]]
+match = "Bu Press"
+
+  [sheet.resource_type]
+  constant = "textDocument-book"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "language"
+  target = "/metadata/languages"
+  transform = "language_list"
+
+  [[sheet.field]]
+  source = "isbn"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "isbn", split = ";" }
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+
+  [[sheet.field]]
+  source = "buy_link"
+  target = "/custom_fields/kcr:publication_url"
+  transform = "url"
+
+  [sheet.constants]
+  "/metadata/publisher" = "Bucknell University Press"
+
+# ------------------------------------------------- digital scholarship
+[[sheet]]
+match = "BU Digital Scholarship"
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = {}
+  default = "other-interactiveResource"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "language"
+  target = "/metadata/languages"
+  transform = "language_list"
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+
+  [[sheet.field]]
+  source = "fulltext_url"
+  target = "/custom_fields/kcr:publication_url"
+  transform = "url"
+
+# ------------------------------------------------------------- DSSRF
+[[sheet]]
+match = "Student Digital Projects (DSSRF*"
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { digital_project = "other-interactiveResource" }
+  default = "other-interactiveResource"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+
+  [[sheet.field]]
+  source = "multimedia_url"
+  target = "/custom_fields/kcr:publication_url"
+  transform = "url"
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+
+# ---------------------------------------------------------------- podcasts
+[[sheet]]
+match = "BU Podcasts"
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { interview = "audiovisual-podcastEpisode" }
+  default = "audiovisual-podcastEpisode"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "language"
+  target = "/metadata/languages"
+  transform = "language_list"
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+
+  [[sheet.field]]
+  source = "multimedia_url"
+  target = "/custom_fields/kcr:publication_url"
+  transform = "url"
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
