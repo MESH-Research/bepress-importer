@@ -70,6 +70,12 @@ def load_out(out_dir):
 
 
 class TestCheck:
+    def test_subdirectories_named_like_json_are_ignored(self, data_dir):
+        (data_dir / "nested.json").mkdir()  # a directory, not a file
+        result = run("check", data_dir, "--as-of", AS_OF)
+        assert "Traceback" not in result.output
+        assert result.exit_code == 1  # findings from coll.json still reported
+
     def test_findings_exit_one_and_are_printed(self, data_dir):
         result = run("check", data_dir, "--as-of", AS_OF)
         assert result.exit_code == 1
