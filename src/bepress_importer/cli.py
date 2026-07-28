@@ -378,4 +378,54 @@ def vocab_sync_cmd(api_url, dest_dir) -> None:
 def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, receipts_path,
            dry_run, notify_record_owners, review_required, strict_validation) -> None:
     """Upload a finished per-collection JSON file to the KC Works Import API."""
-    raise NotImplementedError
+    import json as json_module
+    import os
+
+    from bepress_importer.upload import (
+        API_KEY_ENV,
+        API_URL_ENV,
+        DEFAULT_API_URL,
+        upload_collection,
+    )
+
+    records = json_module.loads(Path(metadata_file).read_text(encoding="utf-8"))
+    if not isinstance(records, list):
+        raise click.ClickException(
+            f"{metadata_file} must contain a JSON array of records "
+            "(the Import API requires an array even for one record)"
+        )
+    api_url = api_url or os.environ.get(API_URL_ENV) or DEFAULT_API_URL
+    target = f"{api_url.rstrip('/')}/api/import/{collection_id}"
+
+    if dry_run:
+        click.echo(f"dry run: would POST {len(records)} record(s) to {target}")
+        return
+
+    if api_key_file:
+        api_key = Path(api_key_file).read_text(encoding="utf-8").strip()
+    else:
+        env_name = api_key_env or API_KEY_ENV
+        api_key = os.environ.get(env_name, "").strip()
+        if not api_key:
+            raise click.ClickException(
+                f"No API key: set the {env_name} environment variable "
+                "or pass --api-key-file"
+            )
+
+    result = upload_collection(
+        records,
+        collection_id,
+        api_key=api_key,
+        api_url=api_url,
+        notify_record_owners=notify_record_owners,
+        review_required=review_required,
+        strict_validation=strict_validation,
+    )
+    receipts_path = Path(
+        receipts_path or Path(metadata_file).with_suffix(".receipts.json")
+    )
+    write_json(receipts_path, result.receipts)
+    click.echo(f"HTTP {result.status_code}: {result.message}")
+    click.echo(f"receipts → {receipts_path}")
+    if not result.success:
+        raise SystemExit(1)

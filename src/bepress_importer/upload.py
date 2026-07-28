@@ -6,6 +6,7 @@ Mirrors MESH's kcworks_api_importer.py request shape: multipart form with a
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -36,4 +37,42 @@ def upload_collection(
     post: Poster | None = None,
 ) -> UploadResult:
     """POST one collection's records; returns per-record receipts keyed by import-recid."""
-    raise NotImplementedError
+    post = post or _http_post
+    url = f"{api_url.rstrip('/')}/api/import/{collection_id}"
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
+    data: dict[str, str] = {
+        "metadata": json.dumps(records, ensure_ascii=False),
+        "notify_record_owners": str(notify_record_owners).lower(),
+    }
+    if review_required is not None:
+        data["review_required"] = str(review_required).lower()
+    if strict_validation is not None:
+        data["strict_validation"] = str(strict_validation).lower()
+
+    status_code, payload = post(url, headers, data)
+    receipts: dict[str, dict] = {}
+    for item in list(payload.get("data", [])) + list(payload.get("errors", [])):
+        source_id = item.get("source_id")
+        if source_id:
+            receipts[source_id] = {
+                "record_id": item.get("record_id"),
+                "record_url": item.get("record_url"),
+                "errors": item.get("errors", []),
+            }
+    return UploadResult(
+        status_code=status_code,
+        success=status_code == 201,
+        message=payload.get("message", ""),
+        receipts=receipts,
+    )
+
+
+def _http_post(url: str, headers: dict, data: dict) -> tuple[int, dict]:
+    import requests
+
+    response = requests.post(url, headers=headers, data=data, timeout=600)
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {"message": response.text[:500]}
+    return response.status_code, payload
