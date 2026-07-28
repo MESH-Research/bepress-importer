@@ -113,6 +113,35 @@ class TestDoiFormat:
         assert findings[0].field == "/metadata/identifiers/1/identifier"
         assert findings[0].proposal == Proposal("10.1000/xyz")
 
+    def test_pmid_is_recognised_and_converted_to_pubmed_url(self):
+        # PubMed IDs are not DOIs; propose an entry KC Works can accept
+        rec = record(
+            identifiers=[
+                {"identifier": "1", "scheme": "import-recid"},
+                {"identifier": "PMID: 21506449", "scheme": "doi"},
+            ]
+        )
+        findings = findings_for("doi-format", [rec])
+        assert len(findings) == 1
+        assert findings[0].field == "/metadata/identifiers/1"
+        assert findings[0].proposal == Proposal(
+            {"identifier": "https://pubmed.ncbi.nlm.nih.gov/21506449/", "scheme": "url"}
+        )
+        assert "PubMed" in findings[0].note
+
+    def test_bare_pmid_prefix_variants_are_recognised(self):
+        for raw in ("PMID:2969942", "pmid: 2969942", "PMID 2969942"):
+            rec = record(
+                identifiers=[
+                    {"identifier": "1", "scheme": "import-recid"},
+                    {"identifier": raw, "scheme": "doi"},
+                ]
+            )
+            findings = findings_for("doi-format", [rec])
+            assert findings[0].proposal == Proposal(
+                {"identifier": "https://pubmed.ncbi.nlm.nih.gov/2969942/", "scheme": "url"}
+            ), raw
+
     def test_clean_doi_passes(self):
         rec = record(
             identifiers=[
