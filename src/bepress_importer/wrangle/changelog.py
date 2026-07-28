@@ -170,7 +170,41 @@ def summarize(log: ChangeLog, titles: dict[str, str] | None = None) -> str:
     explicit wording for additions, removals and reverts so lossy changes
     stand out. `titles` maps record ids to display titles.
     """
-    raise NotImplementedError
+    titles = titles or {}
+    lines = []
+    for event in log.changes:
+        stamp = event.at.replace("T", " ")[:16]
+        title = titles.get(event.record_id)
+        record = f"Record {event.record_id}" + (f' ("{title}")' if title else "")
+        before, after = _render(event.before), _render(event.after)
+        if event.op == "revert":
+            lines.append(
+                f"{stamp} [Change {event.id}] reverts Change {event.target}: {record} "
+                f'field "{event.field}" restored to {after}'
+            )
+            continue
+        if event.before is None:
+            action = f"added: {after}"
+        elif event.after is None:
+            action = f"removed (was: {before})"
+        else:
+            action = f"changed: {before} -> {after}"
+        line = f'{stamp} [Change {event.id}] {record} field "{event.field}" {action}'
+        annotations = []
+        if event.rule:
+            annotations.append(f"rule: {event.rule}")
+        if event.note:
+            annotations.append(f"note: {event.note}")
+        if annotations:
+            line += f" ({'; '.join(annotations)})"
+        lines.append(line)
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _render(value: object) -> str:
+    if value is None or isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    return json.dumps(value, ensure_ascii=False, separators=(", ", ": "), sort_keys=True)
 
 
 def _delete_pointer(obj: dict, pointer: str) -> None:
