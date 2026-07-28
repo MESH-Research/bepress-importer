@@ -163,6 +163,16 @@ class ChangeLog:
         return [self._append_revert(c, at) for c in reversed(live)]
 
 
+def summarize(log: ChangeLog, titles: dict[str, str] | None = None) -> str:
+    """Human-readable line-per-change narrative, regenerated from the log.
+
+    A derived artifact (never the source of truth): scannable by eye, with
+    explicit wording for additions, removals and reverts so lossy changes
+    stand out. `titles` maps record ids to display titles.
+    """
+    raise NotImplementedError
+
+
 def _delete_pointer(obj: dict, pointer: str) -> None:
     parts = pointer.lstrip("/").split("/")
     node: object = obj
