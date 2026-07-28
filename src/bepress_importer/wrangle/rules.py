@@ -232,7 +232,8 @@ def language_code(records: list[dict], as_of: str | None) -> list[Finding]:
     return findings
 
 
-_TRAILING_PUNCT = re.compile(r"[\s,;.]+$")
+# commas/semicolons only: trailing periods are legitimate (initials, "Jr.")
+_TRAILING_PUNCT = re.compile(r"[\s,;]+$")
 
 
 @_rule("name-sanity")
