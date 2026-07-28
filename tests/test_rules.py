@@ -163,6 +163,23 @@ class TestNameSanity:
         cleaned = [f for f in findings if f.field.endswith("family_name")]
         assert cleaned[0].proposal == Proposal("Smith")
 
+    def test_trailing_periods_are_not_flagged(self):
+        # initials and suffixes legitimately end with a period
+        rec = record(
+            creators=[
+                {
+                    "person_or_org": {
+                        "type": "personal",
+                        "name": "Shields, George C.",
+                        "given_name": "George C.",
+                        "family_name": "Shields",
+                    },
+                    "role": {"id": "author"},
+                }
+            ]
+        )
+        assert findings_for("name-sanity", [rec]) == []
+
     def test_personal_creator_without_family_name_flagged(self):
         rec = record(
             creators=[
