@@ -1,0 +1,3 @@
+title,publication_date,context_key,price,empty_col,note
+First Item,2015-04-01,2404130,3.5,,padded
+"Second, ""quoted""",1998-01-01,2404131,12,,unicode: séance—ok
