@@ -1,0 +1,65 @@
+# Test profile exercising every profile feature.
+[profile]
+name = "mini"
+schema_version = 1
+
+[defaults]
+record_id.column = "context_key"
+url_identifier.column = "calc_url"
+files_enabled = false
+season_style = "edtf-season"
+
+[defaults.author_columns]
+prefix = "author"
+max = 5
+
+[[sheet]]
+match = "mini"
+collection = "mini_collection"
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { article = "textDocument-journalArticle", other = "textDocument-other" }
+  default = "textDocument-journalArticle"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [sheet.journal]
+  title = "src_journal"
+  volume = "volnum"
+  issue = "issnum"
+  pages = { first = "fpage", last = "lpage" }
+
+  [sheet.constants]
+  "/custom_fields/kcr:sponsoring_institution" = "Test University"
+
+[[sheet]]
+match = "Thes*"
+
+  [sheet.resource_type]
+  constant = "textDocument-thesis"
+
+  [sheet.contributors]
+  prefix = "advisor"
+  max = 3
+  role = "committeeMember"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
