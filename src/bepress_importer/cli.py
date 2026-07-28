@@ -145,3 +145,89 @@ def convert(
     if result.unmatched_sheets:
         click.echo(f"unmatched sheets: {', '.join(result.unmatched_sheets)}")
     click.echo(f"{len(result.issues)} conversion issue(s) → {out / 'report.json'}")
+
+
+@cli.command()
+@click.argument("data_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--log", "log_path", type=click.Path(dir_okay=False),
+              help="Wrangling log to replay before checking (checks current state).")
+@click.option("--rule", "rule_names", multiple=True)
+@click.option("--record", "record_id", default=None)
+@click.option("--as-of", default=None)
+def check(data_dir, log_path, rule_names, record_id, as_of) -> None:
+    """Run validation rules read-only; exit 1 if there are findings."""
+    raise NotImplementedError
+
+
+@cli.command()
+@click.argument("data_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--log", "log_path", required=True, type=click.Path(dir_okay=False))
+@click.option("-o", "--output", "output_dir", required=True, type=click.Path(file_okay=False))
+@click.option("--rule", "rule_names", multiple=True)
+@click.option("--record", "record_id", default=None)
+@click.option("--yes", is_flag=True, help="Accept every proposed fix without prompting.")
+@click.option("--as-of", default=None)
+def fix(data_dir, log_path, output_dir, rule_names, record_id, yes, as_of) -> None:
+    """Interactively accept proposed fixes; log them and regenerate the output."""
+    raise NotImplementedError
+
+
+@cli.command()
+@click.argument("data_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--log", "log_path", required=True, type=click.Path(dir_okay=False))
+@click.option("-o", "--output", "output_dir", required=True, type=click.Path(file_okay=False))
+@click.option("--record", "record_id", required=True)
+@click.option("--field", "field_pointer", required=True)
+@click.option("--set", "set_value", default=None, help="New string value.")
+@click.option("--set-json", "set_json", default=None, help="New value as JSON.")
+@click.option("--unset", is_flag=True, help="Remove the field.")
+@click.option("--note", default=None)
+def edit(data_dir, log_path, output_dir, record_id, field_pointer, set_value, set_json,
+         unset, note) -> None:
+    """Make one logged manual change to one record."""
+    raise NotImplementedError
+
+
+@cli.command()
+@click.argument("data_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--log", "log_path", required=True, type=click.Path(dir_okay=False))
+@click.option("-o", "--output", "output_dir", required=True, type=click.Path(file_okay=False))
+def apply(data_dir, log_path, output_dir) -> None:
+    """Replay the wrangling log over converter output; exit 1 on conflicts."""
+    raise NotImplementedError
+
+
+@cli.command()
+@click.option("--log", "log_path", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--record", "record_id", default=None)
+@click.option("--field", "field_pointer", default=None)
+def history(log_path, record_id, field_pointer) -> None:
+    """Show the change history, optionally filtered by record or field."""
+    raise NotImplementedError
+
+
+@cli.command()
+@click.option("--log", "log_path", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--change", "change_id", type=int, default=None)
+@click.option("--cascade", is_flag=True)
+@click.option("--record", "record_id", default=None)
+def undo(log_path, change_id, cascade, record_id) -> None:
+    """Revert one change (by id) or every live change on a record.
+
+    Appends revert events; run `apply` afterwards to regenerate output files.
+    """
+    raise NotImplementedError
+
+
+@cli.group()
+def vocab() -> None:
+    """Vocabulary snapshot management."""
+
+
+@vocab.command("sync")
+@click.option("--api-url", default="https://works.hcommons.org", show_default=True)
+@click.option("--dest", "dest_dir", default=None,
+              help="Write snapshots here instead of the packaged vocab directory.")
+def vocab_sync_cmd(api_url, dest_dir) -> None:
+    """Refresh vocabulary snapshots from a live KC Works instance."""
+    raise NotImplementedError
