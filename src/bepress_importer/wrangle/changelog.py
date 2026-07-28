@@ -139,12 +139,28 @@ class ChangeLog:
 
     def undo_change(self, change_id: int, at: str, cascade: bool = False) -> list[Change]:
         """Append revert event(s) for one change; head-only unless cascade."""
-        target = next(c for c in self.changes if c.id == change_id)
-        return [self._append_revert(target, at)]
+        target = next((c for c in self.changes if c.id == change_id), None)
+        if target is None:
+            raise UndoError(f"No change with id {change_id}")
+        if target.op != "change":
+            raise UndoError(f"Change {change_id} is a revert event and cannot itself be undone")
+        stack = self._chain_stacks().get((target.record_id, target.field), [])
+        if target not in stack:
+            raise UndoError(f"Change {change_id} has already been reverted")
+        position = stack.index(target)
+        descendants = stack[position + 1 :]
+        if descendants and not cascade:
+            blocking = ", ".join(str(c.id) for c in descendants)
+            raise UndoError(
+                f"Change {change_id} is not the head of its field's history; later change(s) "
+                f"{blocking} build on it. Revert those first or use cascade."
+            )
+        return [self._append_revert(c, at) for c in reversed(stack[position:])]
 
     def undo_record(self, record_id: str, at: str) -> list[Change]:
         """Append revert events returning the record to its converter-output state."""
-        raise NotImplementedError
+        live = [c for c in self.live_changes() if c.record_id == record_id]
+        return [self._append_revert(c, at) for c in reversed(live)]
 
 
 def _delete_pointer(obj: dict, pointer: str) -> None:
