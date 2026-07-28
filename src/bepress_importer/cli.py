@@ -147,6 +147,39 @@ def convert(
     click.echo(f"{len(result.issues)} conversion issue(s) → {out / 'report.json'}")
 
 
+def _current_state(data_dir, log_path):
+    """Load collections and replay the log (if given) so we work on current values."""
+    from bepress_importer.wrangle.changelog import ChangeLog
+    from bepress_importer.wrangle.session import load_collections, replayed_state
+
+    collections = load_collections(data_dir)
+    log = ChangeLog.load(log_path) if log_path else ChangeLog()
+    wrangled, conflicts = replayed_state(collections, log)
+    if conflicts:
+        for c in conflicts:
+            click.echo(
+                f"conflict: Change {c.change_id} on record {c.record_id} {c.field}: "
+                f"expected {c.expected!r}, found {c.found!r}", err=True
+            )
+        raise click.ClickException(
+            "wrangling log does not replay cleanly over this data (see conflicts above)"
+        )
+    return collections, log, wrangled
+
+
+def _findings_for(wrangled, rule_names, record_id, as_of):
+    from bepress_importer.wrangle.rules import run_rules
+    from bepress_importer.wrangle.session import flatten
+
+    findings = run_rules(
+        flatten(wrangled), names=list(rule_names) or None,
+        as_of=as_of or datetime.date.today().isoformat(),  # noqa: DTZ011
+    )
+    if record_id:
+        findings = [f for f in findings if f.record_id == record_id]
+    return findings
+
+
 @cli.command()
 @click.argument("data_dir", type=click.Path(exists=True, file_okay=False))
 @click.option("--log", "log_path", type=click.Path(dir_okay=False),
@@ -156,7 +189,16 @@ def convert(
 @click.option("--as-of", default=None)
 def check(data_dir, log_path, rule_names, record_id, as_of) -> None:
     """Run validation rules read-only; exit 1 if there are findings."""
-    raise NotImplementedError
+    from bepress_importer.wrangle.session import render_finding
+
+    _, _, wrangled = _current_state(data_dir, log_path)
+    findings = _findings_for(wrangled, rule_names, record_id, as_of)
+    for finding in findings:
+        click.echo(render_finding(finding))
+        click.echo()
+    click.echo(f"{len(findings)} finding(s)")
+    if findings:
+        raise SystemExit(1)
 
 
 @cli.command()
@@ -169,7 +211,20 @@ def check(data_dir, log_path, rule_names, record_id, as_of) -> None:
 @click.option("--as-of", default=None)
 def fix(data_dir, log_path, output_dir, rule_names, record_id, yes, as_of) -> None:
     """Interactively accept proposed fixes; log them and regenerate the output."""
-    raise NotImplementedError
+    from bepress_importer.wrangle.session import (
+        now_iso,
+        run_fix_session,
+        save_log,
+        titles_of,
+        write_outputs,
+    )
+
+    collections, log, wrangled = _current_state(data_dir, log_path)
+    findings = _findings_for(wrangled, rule_names, record_id, as_of)
+    accepted, skipped = run_fix_session(findings, log, at=now_iso(), accept_all=yes)
+    save_log(log_path, log, titles_of(collections))
+    write_outputs(output_dir, collections, log)
+    click.echo(f"{accepted} change(s) applied, {skipped} skipped → {output_dir}")
 
 
 @cli.command()
@@ -185,7 +240,43 @@ def fix(data_dir, log_path, output_dir, rule_names, record_id, yes, as_of) -> No
 def edit(data_dir, log_path, output_dir, record_id, field_pointer, set_value, set_json,
          unset, note) -> None:
     """Make one logged manual change to one record."""
-    raise NotImplementedError
+    import json as json_module
+
+    from bepress_importer.convert import get_pointer
+    from bepress_importer.wrangle.rules import record_id_of
+    from bepress_importer.wrangle.session import (
+        flatten,
+        now_iso,
+        save_log,
+        titles_of,
+        write_outputs,
+    )
+
+    if sum(bool(x) for x in (set_value is not None, set_json is not None, unset)) != 1:
+        raise click.ClickException("Provide exactly one of --set, --set-json or --unset")
+    collections, log, wrangled = _current_state(data_dir, log_path)
+    record = next(
+        (r for r in flatten(wrangled) if record_id_of(r) == record_id), None
+    )
+    if record is None:
+        raise click.ClickException(f"No record with import-recid {record_id!r}")
+    before = get_pointer(record, field_pointer)
+    if unset:
+        after = None
+    elif set_json is not None:
+        try:
+            after = json_module.loads(set_json)
+        except json_module.JSONDecodeError as exc:
+            raise click.ClickException(f"--set-json is not valid JSON: {exc}") from exc
+    else:
+        after = set_value
+    change = log.append_change(
+        record_id, field_pointer, before=before, after=after, at=now_iso(),
+        rule="manual", note=note,
+    )
+    save_log(log_path, log, titles_of(collections))
+    write_outputs(output_dir, collections, log)
+    click.echo(f"Change {change.id} recorded: {record_id} {field_pointer}")
 
 
 @cli.command()
@@ -194,7 +285,11 @@ def edit(data_dir, log_path, output_dir, record_id, field_pointer, set_value, se
 @click.option("-o", "--output", "output_dir", required=True, type=click.Path(file_okay=False))
 def apply(data_dir, log_path, output_dir) -> None:
     """Replay the wrangling log over converter output; exit 1 on conflicts."""
-    raise NotImplementedError
+    from bepress_importer.wrangle.session import write_outputs
+
+    collections, log, _ = _current_state(data_dir, log_path)
+    write_outputs(output_dir, collections, log)
+    click.echo(f"{len(log.changes)} event(s) replayed → {output_dir}")
 
 
 @cli.command()
@@ -203,7 +298,17 @@ def apply(data_dir, log_path, output_dir) -> None:
 @click.option("--field", "field_pointer", default=None)
 def history(log_path, record_id, field_pointer) -> None:
     """Show the change history, optionally filtered by record or field."""
-    raise NotImplementedError
+    from bepress_importer.wrangle.changelog import ChangeLog, summarize
+
+    log = ChangeLog.load(log_path)
+    changes = log.changes
+    if record_id:
+        changes = [c for c in changes if c.record_id == record_id]
+    if field_pointer:
+        changes = [c for c in changes if c.field == field_pointer]
+    filtered = ChangeLog(changes=list(changes), schema_version=log.schema_version)
+    output = summarize(filtered)
+    click.echo(output if output else "(no changes)")
 
 
 @cli.command()
@@ -216,7 +321,23 @@ def undo(log_path, change_id, cascade, record_id) -> None:
 
     Appends revert events; run `apply` afterwards to regenerate output files.
     """
-    raise NotImplementedError
+    from bepress_importer.wrangle.changelog import ChangeLog, UndoError, summarize
+    from bepress_importer.wrangle.session import now_iso
+
+    if (change_id is None) == (record_id is None):
+        raise click.ClickException("Provide exactly one of --change or --record")
+    log = ChangeLog.load(log_path)
+    try:
+        if change_id is not None:
+            reverts = log.undo_change(change_id, at=now_iso(), cascade=cascade)
+        else:
+            reverts = log.undo_record(record_id, at=now_iso())
+    except UndoError as exc:
+        raise click.ClickException(str(exc)) from exc
+    log.save(log_path)
+    summary_path = Path(log_path).with_suffix(".log")
+    summary_path.write_text(summarize(log), encoding="utf-8")
+    click.echo(f"{len(reverts)} revert event(s) appended; run `apply` to regenerate output")
 
 
 @cli.group()
@@ -230,4 +351,9 @@ def vocab() -> None:
               help="Write snapshots here instead of the packaged vocab directory.")
 def vocab_sync_cmd(api_url, dest_dir) -> None:
     """Refresh vocabulary snapshots from a live KC Works instance."""
-    raise NotImplementedError
+    from bepress_importer.vocab import VOCAB_DIR
+    from bepress_importer.vocab_sync import sync_vocabularies
+
+    counts = sync_vocabularies(api_url, vocab_dir=dest_dir or VOCAB_DIR)
+    for name, count in counts.items():
+        click.echo(f"{name}: {count} ids")

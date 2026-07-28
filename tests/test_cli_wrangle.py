@@ -129,7 +129,7 @@ class TestFix:
         run("fix", data_dir, "--log", log, "-o", out, "--yes", "--as-of", AS_OF)
         # manually break the date again via edit, then fix again: chain must link
         run("edit", data_dir, "--log", log, "-o", out, "--record", "10",
-            "--field", "/metadata/publication_date", "--set", "bogus")
+            "--field", "/metadata/publication_date", "--set", "Fall 2016")
         run("fix", data_dir, "--log", log, "-o", out, "--yes", "--as-of", AS_OF)
         changes = json.loads(log.read_text())["changes"]
         date_changes = [
