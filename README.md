@@ -68,6 +68,19 @@ uv run bepress-importer upload wrangled/fac_journ.json --collection-id <id>
 `upload` writes `<file>.receipts.json` mapping each record's `import-recid` to
 the created KC Works record URL (or its per-field errors on failure).
 
+## The conversion log
+
+`convert` writes a client-inspectable provenance log next to its output, in
+two forms: `conversion-log.json` (precise) and `conversion-log.txt` (human
+readable). It records, per sheet, every mapping rule applied — which column
+went to which KC Works field, how, and why — including the columns
+deliberately **not** imported; and then, per record, every value that left
+the spreadsheet in a different form than it arrived (dates normalized to
+EDTF, DOIs stripped to bare form, keywords split, expired embargoes omitted,
+…) with the reason. Both files are deterministic: re-running the same
+conversion produces byte-identical logs, so a log can be re-verified at any
+time.
+
 ## The change log
 
 `wrangling.json` is an ordered, append-only event log. Each change carries:
