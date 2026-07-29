@@ -169,6 +169,7 @@ def edtf_date(records: list[dict], as_of: str | None) -> list[Finding]:
 
 _DOI_OK = re.compile(r"^10\.\d{4,9}/\S+$")
 _DOI_EXTRACT = re.compile(r"(10\.\d{4,9}/\S+)", re.IGNORECASE)
+_PMID = re.compile(r"^\s*pmid:?\s*(\d+)\s*$", re.IGNORECASE)
 
 
 @_rule("doi-format")
@@ -176,17 +177,39 @@ def doi_format(records: list[dict], as_of: str | None) -> list[Finding]:
     findings = []
     for record in records:
         for index, ident in enumerate(record.get("metadata", {}).get("identifiers", [])):
-            if ident.get("scheme") != "doi" or _DOI_OK.match(ident.get("identifier", "")):
+            value = ident.get("identifier", "")
+            if ident.get("scheme") != "doi" or _DOI_OK.match(value):
                 continue
-            match = _DOI_EXTRACT.search(ident.get("identifier", ""))
+            pmid = _PMID.match(value)
+            if pmid:
+                findings.append(
+                    Finding(
+                        "doi-format",
+                        record_id_of(record),
+                        f"/metadata/identifiers/{index}",
+                        dict(ident),
+                        Proposal(
+                            {
+                                "identifier": f"https://pubmed.ncbi.nlm.nih.gov/{pmid.group(1)}/",
+                                "scheme": "url",
+                            }
+                        ),
+                        note="this is a PubMed ID, not a DOI; KC Works has no pmid "
+                        "scheme, so link it as a PubMed URL instead",
+                    )
+                )
+                continue
+            match = _DOI_EXTRACT.search(value)
             findings.append(
                 Finding(
                     "doi-format",
                     record_id_of(record),
                     f"/metadata/identifiers/{index}/identifier",
-                    ident.get("identifier"),
+                    value,
                     Proposal(match.group(1)) if match else None,
-                    note="DOI should be the bare 10.xxxx/... form",
+                    note="DOI should be the bare 10.xxxx/... form"
+                    if match
+                    else "value in the doi field does not look like a DOI",
                 )
             )
     return findings

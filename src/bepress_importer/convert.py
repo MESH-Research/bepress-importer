@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from bepress_importer import conversion_log
 from bepress_importer.builders import (
     build_contributors,
     build_creators,
@@ -25,11 +26,27 @@ class Issue:
     message: str
 
 
+@dataclass(frozen=True)
+class ValueChange:
+    """One value that left the spreadsheet altered (or omitted), and why."""
+
+    collection: str
+    record_id: str
+    source: str
+    target: str
+    raw: str
+    result: object
+    action: str  # "transformed" | "dropped"
+    reason: str
+
+
 @dataclass
 class ConversionResult:
     collections: dict[str, list[dict]] = field(default_factory=dict)
     issues: list[Issue] = field(default_factory=list)
     unmatched_sheets: list[str] = field(default_factory=list)
+    value_changes: list[ValueChange] = field(default_factory=list)
+    sheet_docs: list[dict] = field(default_factory=list)
 
 
 def set_pointer(obj: dict, pointer: str, value: object) -> None:
@@ -92,9 +109,15 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
             result.unmatched_sheets.append(table.name)
             continue
         slug = _collection_slug(table, sheet_profile)
-        records = _convert_sheet(table, sheet_profile, profile.defaults, as_of, result.issues)
+        records = _convert_sheet(
+            table, sheet_profile, profile.defaults, as_of, result.issues,
+            slug, result.value_changes,
+        )
         result.collections.setdefault(slug, []).extend(records)
         result.collections[slug].sort(key=lambda r: _sort_key(_record_id(r)))
+        result.sheet_docs.append(
+            conversion_log.describe_sheet(table, sheet_profile, profile.defaults, slug)
+        )
     return result
 
 
@@ -115,12 +138,56 @@ def _collection_slug(table: Table, sheet_profile: SheetProfile) -> str:
     return _slugify(table.name)
 
 
+def _describe_change(
+    transform: str, args: dict, raw: str, value: object, row: dict[str, str], as_of: str
+) -> str:
+    """Human explanation for why a transformed value differs from its source."""
+    if transform == "edtf_date":
+        season = row.get(args.get("season_column", ""), "").strip()
+        if isinstance(value, str) and season and "-2" in value[4:]:
+            return f"Bepress year-placeholder date refined to EDTF season using {season!r}"
+        if isinstance(value, str) and len(value) == 4:
+            return "Bepress placeholder date (1 January) reduced to the year alone"
+        return "date normalized to EDTF"
+    if transform == "identifier":
+        scheme = args.get("scheme", "identifier")
+        if args.get("normalize") == "doi" and isinstance(value, dict) and value.get(
+            "identifier"
+        ) != raw:
+            return f"DOI normalized to bare form and recorded as a {scheme} identifier"
+        return f"recorded as a {scheme} identifier"
+    if transform == "split":
+        if "join" in args:
+            return f"list separated by {args.get('sep', ',')!r} rejoined with {args['join']!r}"
+        return f"split into separate items on {args.get('sep', ',')!r}"
+    if transform == "strip_html":
+        return "HTML markup removed"
+    if transform == "additional_description":
+        return "HTML removed; stored as an additional description"
+    if transform == "url":
+        return f"not a valid http(s) URL — value omitted (as of {as_of})" \
+            if value is None else "URL kept"
+    if transform == "embargo":
+        if value is None:
+            return f"embargo date has already passed as of {as_of} — no embargo carried over"
+        return "future embargo converted to a KC Works access embargo"
+    if transform == "language_list":
+        return "parsed into standard language-code entries"
+    if transform == "license_url":
+        if value is None:
+            return "license URL not recognized — value omitted"
+        return "Creative Commons URL mapped to the matching KC Works rights id"
+    return f"transform {transform!r} applied"
+
+
 def _convert_sheet(
     table: Table,
     sheet: SheetProfile,
     defaults: Defaults,
     as_of: str,
     issues: list[Issue],
+    collection: str,
+    value_changes: list[ValueChange],
 ) -> list[dict]:
     records = []
     for row in table.rows:
@@ -140,14 +207,29 @@ def _convert_sheet(
         _apply_resource_type(record, row, sheet, table.name, record_id, issues)
 
         for mapping in sheet.fields:
-            raw = row.get(mapping.source, "")
+            raw = row.get(mapping.source, "").strip()
             args = dict(mapping.args)
             if mapping.transform == "embargo":
                 args.setdefault("as_of", as_of)
             if mapping.transform:
                 value = apply_transform(mapping.transform, raw, row, args)
+                if raw and value != raw:
+                    value_changes.append(
+                        ValueChange(
+                            collection=collection,
+                            record_id=record_id,
+                            source=mapping.source,
+                            target=mapping.target,
+                            raw=raw,
+                            result=value,
+                            action="dropped" if value is None else "transformed",
+                            reason=_describe_change(
+                                mapping.transform, args, raw, value, row, as_of
+                            ),
+                        )
+                    )
             else:
-                value = raw.strip() or None
+                value = raw or None
             if value is not None:
                 set_pointer(record, mapping.target, value)
             if mapping.required and not get_pointer(record, mapping.target):

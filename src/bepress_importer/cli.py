@@ -41,43 +41,17 @@ def inspect(input_file: str, profile_path: str | None, scaffold: bool) -> None:
         if sheet is None:
             click.echo("  (no profile match)")
             continue
-        mapped = _mapped_columns(sheet, profile)
-        unmapped = [c for c in table.columns if c not in mapped and not _is_empty(table, c)]
-        empty = [c for c in table.columns if _is_empty(table, c)]
+        from bepress_importer.conversion_log import column_is_empty, mapped_columns
+
+        mapped = mapped_columns(sheet, profile.defaults)
+        unmapped = [
+            c for c in table.columns if c not in mapped and not column_is_empty(table, c)
+        ]
+        empty = [c for c in table.columns if column_is_empty(table, c)]
         click.echo(f"  mapped: {sum(1 for c in table.columns if c in mapped)}"
                    f" / unmapped (non-empty): {len(unmapped)} / empty: {len(empty)}")
         if unmapped:
             click.echo("  unmapped columns: " + ", ".join(unmapped))
-
-
-def _is_empty(table, column: str) -> bool:
-    return all(not row.get(column, "") for row in table.rows)
-
-
-def _mapped_columns(sheet, profile) -> set[str]:
-    mapped = {f.source for f in sheet.fields}
-    for f in sheet.fields:
-        if "season_column" in f.args:
-            mapped.add(f.args["season_column"])
-    if sheet.resource_type and sheet.resource_type.column:
-        mapped.add(sheet.resource_type.column)
-    defaults = profile.defaults
-    mapped |= {defaults.record_id_column, "issue"}
-    if defaults.url_column:
-        mapped.add(defaults.url_column)
-    prefix = defaults.authors.prefix
-    for n in range(1, defaults.authors.max + 1):
-        for part in ("fname", "mname", "lname", "suffix", "email", "institution", "is_corporate"):
-            mapped.add(f"{prefix}{n}_{part}")
-    if sheet.contributors:
-        for n in range(1, sheet.contributors.max + 1):
-            mapped.add(f"{sheet.contributors.prefix}{n}")
-    for composite in (sheet.journal, sheet.imprint):
-        if composite:
-            for column in vars(composite).values():
-                if column:
-                    mapped.add(column)
-    return mapped
 
 
 def _scaffold_profile(workbook: Workbook) -> str:
@@ -146,9 +120,25 @@ def convert(
             "unmatched_sheets": result.unmatched_sheets,
         },
     )
+    from bepress_importer.conversion_log import build_payload, render_text
+
+    payload = build_payload(
+        input_name=Path(input_file).name,
+        profile_name=profile.name,
+        as_of=as_of,
+        sheet_docs=result.sheet_docs,
+        value_changes=result.value_changes,
+    )
+    write_json(out / "conversion-log.json", payload)
+    (out / "conversion-log.txt").write_text(render_text(payload), encoding="utf-8")
+
     if result.unmatched_sheets:
         click.echo(f"unmatched sheets: {', '.join(result.unmatched_sheets)}")
     click.echo(f"{len(result.issues)} conversion issue(s) → {out / 'report.json'}")
+    click.echo(
+        f"conversion log ({len(result.value_changes)} value changes) → "
+        f"{out / 'conversion-log.txt'} (+ .json)"
+    )
 
 
 def _current_state(data_dir, log_path):
