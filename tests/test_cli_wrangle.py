@@ -76,6 +76,14 @@ class TestCheck:
         assert result.exception is None or isinstance(result.exception, SystemExit)
         assert result.exit_code == 1  # findings from coll.json still reported
 
+    def test_non_record_json_files_are_ignored(self, data_dir):
+        # convert writes report.json and conversion-log.json beside the records
+        (data_dir / "conversion-log.json").write_text(json.dumps({"profile": "x", "sheets": []}))
+        (data_dir / "report.json").write_text(json.dumps({"issues": []}))
+        result = run("check", data_dir, "--as-of", AS_OF)
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert result.exit_code == 1  # findings from coll.json still reported
+
     def test_findings_exit_one_and_are_printed(self, data_dir):
         result = run("check", data_dir, "--as-of", AS_OF)
         assert result.exit_code == 1
