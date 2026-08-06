@@ -65,9 +65,13 @@ def _build_table(name: str, headers: list[str], raw_rows: list[list[str]]) -> Ta
 
 
 def _read_csv(path: Path) -> Workbook:
-    with open(path, newline="", encoding="utf-8-sig") as handle:
-        reader = csv.reader(handle)
-        rows = list(reader)
+    # utf-8 first; legacy Bepress exports (e.g. inventory reports) are cp1252
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as handle:
+            rows = list(csv.reader(handle))
+    except UnicodeDecodeError:
+        with open(path, newline="", encoding="cp1252") as handle:
+            rows = list(csv.reader(handle))
     if not rows:
         return Workbook(tables=(Table(name=path.stem, columns=(), rows=()),))
     return Workbook(tables=(_build_table(path.stem, rows[0], rows[1:]),))
