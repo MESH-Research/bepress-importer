@@ -69,6 +69,8 @@ def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
         match = _DOI_RE.search(value)
         if match:
             value = match.group(1)
+    if args.get("scheme") == "url" and not re.match(r"^https?://\S+$", value):
+        return None
     return {"identifier": value, "scheme": args["scheme"]}
 
 
