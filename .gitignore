@@ -25,3 +25,6 @@ wrangled/
 wrangling.json
 wrangling.log
 receipts.json
+
+# Client instruction documents — never commit
+*.odt
