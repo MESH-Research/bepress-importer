@@ -65,6 +65,13 @@ class TestIdentifier:
             "scheme": "isbn",
         }
 
+    def test_url_scheme_requires_a_real_url(self):
+        assert apply("identifier", "Author", args={"scheme": "url"}) is None
+        assert apply("identifier", "https://example.org/x", args={"scheme": "url"}) == {
+            "identifier": "https://example.org/x",
+            "scheme": "url",
+        }
+
     def test_split_arg_takes_first_segment(self):
         # Bepress ISBN cells like "9781684480166; eISBN; PDF"
         assert apply(
