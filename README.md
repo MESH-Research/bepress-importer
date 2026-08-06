@@ -109,6 +109,22 @@ means a new profile, not new code.
 uv run bepress-importer inspect "Data/NewClient.xls" --scaffold > profiles/newclient.toml
 ```
 
+Two profiles ship with the tool: `profiles/bucknell.toml` (multi-sheet
+collection export) and `profiles/inventory.toml` (site-wide inventory
+report: one flattened CSV of every collection, cp1252-encoded, keyed on
+`context_key`). Inventory exports include unpublished material, so that
+profile uses a row filter —
+
+```toml
+[sheet.filter]
+column = "state"
+keep = ["published"]
+```
+
+— and the conversion log lists every excluded record id. Several sources may
+accumulate into one list target (e.g. `doi` and `isbn` both appending to
+`/metadata/identifiers`) by declaring `append = true` on each field.
+
 Transforms available to profiles: `edtf_date` (with season support),
 `identifier` (DOI normalization, segment splitting), `split`, `strip_html`,
 `additional_description`, `url`, `embargo`, `language_list`, `license_url`.
