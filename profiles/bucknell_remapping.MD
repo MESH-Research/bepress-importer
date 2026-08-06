@@ -1,13 +1,13 @@
 # Bucknell profile remapping report
 
-Applied to `profiles/bucknell.toml` from the client mapping instructions
-document (`bucknell_mapping.odt`, received 2026-08). Every change to the
+Applied to `profiles/bucknell.toml` from the mapping document assembled,
+with my thanks, by Bonnie Russell and Ian Scott. Every change to the
 mapping is listed below, followed by the points that need clarification.
-Where the instructions confirmed what the profile already did, that is noted
+Where the document confirmed what the profile already did, that is noted
 too, so this report is a complete account of how the instructions were
 handled.
 
-## Conventions adopted (from the instructions' general notes)
+## General conventions adopted
 
 - **Nested custom fields keep both namespace words**: `thesis:thesis`,
   `journal:journal`, `imprint:imprint`. This corrected a latent error: the
@@ -26,11 +26,11 @@ handled.
 | Column | Before | After |
 |---|---|---|
 | `pub_link` | `custom_fields.kcr:publication_url` | `metadata.identifiers` (scheme `url`; non-URL values are dropped and logged) |
-| `comments` | not imported | `metadata.additional_descriptions` (type `other`, HTML stripped) |
+| `comments` | not imported | `metadata.additional_descriptions` (type `other`, **HTML stripped**) |
 | `custom_citation` | not imported | `metadata.additional_descriptions` (type `other`) — per instruction, "just to not lose the data" |
-| `pub_statement` | not imported | `metadata.copyright` (HTML stripped) |
+| `pub_statement` | not imported | `metadata.copyright` (**HTML stripped**) |
 
-Unchanged, as confirmed by the instructions: journal columns →
+Unchanged, as confirmed by the mapping document: journal columns →
 `journal:journal.{title, volume, issue}` (plus `pages`, which the profile
 already built from `fpage`/`lpage`); `embargo_date` → `access.embargo`.
 
@@ -108,17 +108,21 @@ Fac Journal `department2` (see question 8), theses and Bu Press
 1. **`ctmtime`**: the instruction says to map it to the record's top-level
    `created` timestamp *"if this is record creation time"*. It does not
    appear to be: the values are Unix epochs clustered around May 2023 on
-   records published in 2011, so this looks like Bepress's **last-modified**
-   time, not creation. We have left it unmapped. Should we (a) leave it out,
+   records published in 2011, so this could be Bepress's **last-modified**
+   time, not creation? I have left it unmapped. Should I (a) leave it out,
    (b) import it as `created` anyway, or (c) put it somewhere else (e.g. a
-   dates entry typed "updated")?
+   dates entry typed "updated")? I also have just noticed, in the bepress
+   docs, that it says "ctmtime –Unique time stamp for each record". It then
+   says, above it "the following fields will appear at the right end of the 
+   Batch Revise spreadsheet in gray and are for system use only". So perhaps
+   this is a field to ignore?
 
-2. **Theses `multimedia_url`**: values are a mix of junk (the literal string
-   "Author"), Kaltura short links and YouTube links — apparently recordings
-   *about* the thesis (defence/presentation?) rather than the thesis itself.
-   Under the "work itself vs. overall series" rule neither case clearly
-   applies. Should these become work-level `url` identifiers (junk would be
-   dropped automatically), or stay unimported?
+2. **Theses `multimedia_url`**: values are a mix of bad data (the literal 
+   string "Author"), Kaltura short links and YouTube links — apparently 
+   recordings *about* the thesis (defence/presentation?) rather than the 
+   thesis itself. Under the "work itself vs. overall series" rule neither 
+   case clearly applies. Should these become work-level `url` identifiers 
+   (bad data would be dropped automatically), or stay unimported?
 
 3. **Bu Press `multimedia_url`**: four values, mixing bare dates
    ("07/14/2023") with publisher catalogue URLs. Same question as 2; the
@@ -151,25 +155,16 @@ Fac Journal `department2` (see question 8), theses and Bu Press
    Currently (a).
 
 7. **`metadata.copyright`**: this field is not in the KC Works v12 metadata
-   documentation we built against (we understand it arrives with the
-   Invenio 13 upgrade mentioned in the instructions). The mappings are in
-   place as instructed; please confirm the import API will accept the field,
-   or whether it should be held back until after the upgrade.
+   documentation I built against (I understand it arrives with the Invenio 13
+   upgrade mentioned in the instructions). The mappings are in place as 
+   instructed; I need to confirm the import API on staging will accept the 
+   field, or whether it should be held back until after the upgrade.
 
 8. **`department` for non-thesis types**: the instruction allows
-   `kcr:institution_department` **or** `kcr:sponsoring_institution`. We kept
+   `kcr:institution_department` **or** `kcr:sponsoring_institution`. I kept
    `kcr:institution_department` everywhere outside theses (and Fac Journal
    `department2` remains unimported, since the department2 instruction was
-   scoped to theses). Confirm, or tell us which sheets should use
-   `sponsoring_institution` — and whether Fac Journal `department2` should
-   now also go to `kcr:institution_department` in the way thesis
-   `department2` does.
-
-## Verification
-
-Converted the full Bucknell export with the revised profile: all 3,633
-records convert with zero conversion issues; the conversion log records
-17,164 value changes (up from 14,916, reflecting the newly imported
-columns); `check` reports the same 16 pre-existing data-quality findings
-(broken DOIs, two name fixes) — no new findings introduced by the
-remapping. The full test suite (291 tests) passes.
+   scoped to theses). Is that right? If not, please help me decide which 
+   sheets should use `sponsoring_institution` — and whether Fac Journal 
+   `department2` should now also go to `kcr:institution_department` in the 
+   way thesis `department2` does.
