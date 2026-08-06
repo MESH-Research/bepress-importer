@@ -68,6 +68,14 @@ class ImprintMapping:
 
 
 @dataclass(frozen=True)
+class RowFilter:
+    """Keep only rows whose column value is in `keep` (e.g. state = published)."""
+
+    column: str
+    keep: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Defaults:
     record_id_column: str = "context_key"
     url_column: str | None = None
@@ -86,6 +94,7 @@ class SheetProfile:
     contributors: ContributorColumns | None = None
     constants: dict[str, str] = field(default_factory=dict)
     collection: str | None = None
+    filter: RowFilter | None = None
 
 
 @dataclass(frozen=True)
@@ -216,6 +225,13 @@ def _parse_sheet(
             role=c_raw["role"],
         )
 
+    row_filter = None
+    if "filter" in raw:
+        f_raw = raw["filter"]
+        if not f_raw.get("column") or not f_raw.get("keep"):
+            raise ProfileError(f"{where}: filter needs 'column' and a 'keep' list")
+        row_filter = RowFilter(column=f_raw["column"], keep=tuple(f_raw["keep"]))
+
     constants = dict(raw.get("constants", {}))
     for pointer in constants:
         if not pointer.startswith("/"):
@@ -232,4 +248,5 @@ def _parse_sheet(
         contributors=contributors,
         constants=constants,
         collection=raw.get("collection"),
+        filter=row_filter,
     )

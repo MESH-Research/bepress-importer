@@ -109,16 +109,39 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
             result.unmatched_sheets.append(table.name)
             continue
         slug = _collection_slug(table, sheet_profile)
+        table, filter_doc = _apply_row_filter(table, sheet_profile, profile.defaults)
         records = _convert_sheet(
             table, sheet_profile, profile.defaults, as_of, result.issues,
             slug, result.value_changes,
         )
         result.collections.setdefault(slug, []).extend(records)
         result.collections[slug].sort(key=lambda r: _sort_key(_record_id(r)))
-        result.sheet_docs.append(
-            conversion_log.describe_sheet(table, sheet_profile, profile.defaults, slug)
-        )
+        doc = conversion_log.describe_sheet(table, sheet_profile, profile.defaults, slug)
+        if filter_doc:
+            doc["row_filter"] = filter_doc
+        result.sheet_docs.append(doc)
     return result
+
+
+def _apply_row_filter(
+    table: Table, sheet: SheetProfile, defaults: Defaults
+) -> tuple[Table, dict | None]:
+    """Drop rows excluded by the sheet's filter, documenting who was excluded."""
+    if sheet.filter is None:
+        return table, None
+    kept, excluded_ids = [], []
+    for row in table.rows:
+        if row.get(sheet.filter.column, "") in sheet.filter.keep:
+            kept.append(row)
+        else:
+            excluded_ids.append(row.get(defaults.record_id_column, "").strip() or "?")
+    filter_doc = {
+        "column": sheet.filter.column,
+        "keep": list(sheet.filter.keep),
+        "excluded": len(excluded_ids),
+        "excluded_ids": excluded_ids,
+    }
+    return Table(name=table.name, columns=table.columns, rows=tuple(kept)), filter_doc
 
 
 def _record_id(record: dict) -> str:

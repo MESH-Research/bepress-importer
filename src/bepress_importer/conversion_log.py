@@ -189,6 +189,19 @@ def render_text(payload: dict) -> str:
                 f"  {doc['source_url']['column']} → {doc['source_url']['target']}",
                 f"    why: {doc['source_url']['why']}",
             ]
+        if "row_filter" in doc:
+            rf = doc["row_filter"]
+            lines += [
+                "Row filter:",
+                (
+                    f"  only rows with {rf['column']} in {rf['keep']} were imported; "
+                    f"{rf['excluded']} row(s) excluded"
+                ),
+            ]
+            if rf["excluded_ids"]:
+                lines.append(
+                    "  excluded record ids: " + ", ".join(rf["excluded_ids"])
+                )
         if "resource_type" in doc:
             rt = doc["resource_type"]
             lines.append("Resource type:")
