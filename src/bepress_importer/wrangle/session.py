@@ -22,9 +22,12 @@ def load_collections(data_dir: str | Path) -> dict[str, list[dict]]:
 
     collections = {}
     for path in sorted(Path(data_dir).glob("*.json")):
-        if path.name == "report.json" or not path.is_file():
+        if not path.is_file():
             continue
-        collections[path.name] = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            continue  # report.json, conversion-log.json, receipts — not record arrays
+        collections[path.name] = data
     if not collections:
         raise click.ClickException(f"No collection JSON files found in {data_dir}")
     return collections
