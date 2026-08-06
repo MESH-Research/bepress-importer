@@ -1,3 +1,20 @@
+## 1.2.0 (2026-08-06)
+
+### Feat
+
+- **profiles**: apply bucknell client remapping instructions
+- **transforms**: validate url-scheme identifiers
+- **transforms**: row-scanning transforms run on empty source cells
+- **transforms**: rights constants, related identifiers, namespaced tags, thesis university and merged splits
+- **profiles**: inventory export profile with published-only row filter
+- **profiles**: append flag for shared list targets
+- **profiles**: row filter to exclude non-published records
+- **readers**: fall back to cp1252 for non-utf8 csv exports
+
+### Fix
+
+- **cli**: skip non-record json files when loading collections
+
 ## 1.1.0 (2026-07-29)
 
 ### Feat
