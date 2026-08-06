@@ -28,3 +28,7 @@ receipts.json
 
 # Client instruction documents — never commit
 *.odt
+
+# IDE and editor artifacts
+.idea/
+.~lock.*#
