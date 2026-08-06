@@ -76,6 +76,22 @@ def test_duplicate_headers_are_disambiguated():
     assert table.rows[0] == {"a": "1", "a_2": "2", "b": "3"}
 
 
+def test_cp1252_csv_is_read_with_encoding_fallback(tmp_path):
+    # Bepress inventory exports are Windows-1252; 0x92 is a curly apostrophe
+    path = tmp_path / "legacy.csv"
+    path.write_bytes(b"title,context_key\nIt\x92s a title,42\n")
+    workbook = read_workbook(path)
+    assert workbook.tables[0].rows[0]["title"] == "It’s a title"
+
+
+def test_utf8_bom_csv_still_reads(tmp_path):
+    path = tmp_path / "bom.csv"
+    path.write_bytes(b"\xef\xbb\xbftitle,context_key\ns\xc3\xa9ance,42\n")
+    workbook = read_workbook(path)
+    assert workbook.tables[0].columns == ("title", "context_key")
+    assert workbook.tables[0].rows[0]["title"] == "séance"
+
+
 def test_unknown_extension_is_an_error(tmp_path):
     weird = tmp_path / "data.parquet"
     weird.write_text("nope")
