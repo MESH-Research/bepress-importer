@@ -1,0 +1,180 @@
+# Bepress site-wide inventory export → KC Works mapping profile.
+#
+# An inventory export is a single flattened CSV: every collection's rows in
+# one sheet with the union of all columns (~585). Rows carry a `state`
+# column; only `published` rows are imported (withdrawn/pending/rejected are
+# excluded and listed in the conversion log). Records are keyed on
+# `context_key`; inventory exports carry no calc_url, so no url identifier
+# is emitted.
+#
+# Deliberately unmapped columns (documented, not accidental): the export
+# contains dozens of sparsely-used per-collection columns (exhibition,
+# performance, patent, geodata fields, workflow/admin fields such as
+# submission_date, submitted_by, custom_citation, comments, open_access,
+# pub_statement, address/phone fields, etc.). Only the well-populated core
+# scholarly fields are mapped; run `inventory.toml` through
+# `bepress-importer inspect --profile` for the full unmapped list on a given
+# export. Client-specific mapping adjustments are expected on top of this
+# baseline.
+
+[profile]
+name = "inventory"
+schema_version = 1
+
+[defaults]
+record_id.column = "context_key"
+files_enabled = false
+season_style = "edtf-season"
+
+[defaults.author_columns]
+prefix = "author"
+max = 20
+
+[[sheet]]
+match = "*"
+collection = "inventory"
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  column = "document_type"
+  default = "textDocument-other"
+
+  [sheet.resource_type.map]
+  article = "textDocument-journalArticle"
+  journalarticle = "textDocument-journalArticle"
+  book_contribution = "textDocument-bookSection"
+  popular_press = "textDocument-magazineArticle"
+  book = "textDocument-book"
+  bookreview = "textDocument-review"
+  honors_thesis = "textDocument-thesis"
+  honors_thesis_b = "textDocument-thesis"
+  masters_thesis = "textDocument-thesis"
+  masters_thesis_b = "textDocument-thesis"
+  essay = "textDocument-essay"
+  whitepaper = "textDocument-whitePaper"
+  report = "textDocument-report"
+  technicalreports = "textDocument-report"
+  editorial = "textDocument-editorial"
+  unpublished_paper = "textDocument-workingPaper"
+  presentation = "presentation-other"
+  poster = "presentation-conferencePoster"
+  conference_paper = "presentation-conferencePaper"
+  keynote = "presentation-other"
+  keynote_presentation = "presentation-other"
+  keynotepresentation = "presentation-other"
+  interview = "audiovisual-interviewRecording"
+  film = "audiovisual-videoRecording"
+  accessfilm = "audiovisual-videoRecording"
+  openaccessfilm = "audiovisual-videoRecording"
+  bucknellaccessonlyfilm = "audiovisual-videoRecording"
+  video = "audiovisual-videoRecording"
+  audiomaterials = "audiovisual-audioRecording"
+  performance = "audiovisual-performance"
+  digital_project = "other-interactiveResource"
+  dataset = "dataset"
+  datasets = "dataset"
+  Software = "software-other"
+  Hardware = "other-physicalObject"
+  exhibition = "other-event"
+  conference = "other-event"
+  workshop = "other-event"
+  panel = "other-event"
+  panel_discussion = "other-event"
+  paneldiscussion = "other-event"
+  demonstration = "other-event"
+  breakout = "other-event"
+  tour = "other-event"
+  other = "textDocument-other"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "degree_name"
+  target = "/custom_fields/kcr:degree"
+
+  [[sheet.field]]
+  source = "publisher"
+  target = "/metadata/publisher"
+
+  [[sheet.field]]
+  source = "doi"
+  target = "/metadata/identifiers"
+  append = true
+  transform = "identifier"
+  args = { scheme = "doi", normalize = "doi" }
+
+  [[sheet.field]]
+  source = "isbn"
+  target = "/metadata/identifiers"
+  append = true
+  transform = "identifier"
+  args = { scheme = "isbn", split = ";" }
+
+  [[sheet.field]]
+  source = "language"
+  target = "/metadata/languages"
+  transform = "language_list"
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+
+  [[sheet.field]]
+  source = "pub_link"
+  target = "/custom_fields/kcr:publication_url"
+  transform = "url"
+
+  [[sheet.field]]
+  source = "embargo_date"
+  target = "/access"
+  transform = "embargo"
+
+  [sheet.contributors]
+  prefix = "advisor"
+  max = 3
+  role = "committeeMember"
+
+  [sheet.journal]
+  title = "src_journal"
+  volume = "volnum"
+  issue = "issnum"
+  issn = "issn"
+  pages = { first = "fpage", last = "lpage" }
+
+  [sheet.imprint]
+  place = "city"
