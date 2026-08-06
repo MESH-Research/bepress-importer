@@ -7,6 +7,7 @@ place at the field's JSON-pointer target, or None to omit the field.
 
 from __future__ import annotations
 
+import copy
 import html
 import re
 from collections.abc import Callable
@@ -69,8 +70,13 @@ def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
 
 @transform("split")
 def split(value: str, row: dict[str, str], args: dict) -> object | None:
-    """Delimited string → list of stripped non-empty items (or re-joined string)."""
-    items = [item.strip() for item in value.split(args.get("sep", ","))]
+    """Delimited string → list of stripped non-empty items (or re-joined string).
+
+    args.also_columns merges values from sibling columns into the list.
+    """
+    sep = args.get("sep", ",")
+    raw_parts = [value] + [row.get(col, "") for col in args.get("also_columns", [])]
+    items = [item.strip() for part in raw_parts for item in part.split(sep)]
     items = [item for item in items if item]
     if not items:
         return None
@@ -120,6 +126,43 @@ def additional_description(value: str, row: dict[str, str], args: dict) -> objec
     if not text:
         return None
     return [{"description": text, "type": {"id": args.get("type", "other")}}]
+
+
+@transform("constant_if_present")
+def constant_if_present(value: str, row: dict[str, str], args: dict) -> object | None:
+    """Non-empty source → a fixed value from the profile (e.g. rights id 'arr')."""
+    return copy.deepcopy(args["value"])
+
+
+@transform("related_identifier")
+def related_identifier(value: str, row: dict[str, str], args: dict) -> object | None:
+    """Value → related_identifiers entry; url-scheme values must be real URLs."""
+    if args.get("scheme") == "url" and not re.match(r"^https?://\S+$", value):
+        return None
+    return [
+        {
+            "identifier": value,
+            "scheme": args["scheme"],
+            "relation_type": {"id": args["relation"]},
+        }
+    ]
+
+
+@transform("prefixed_tag")
+def prefixed_tag(value: str, row: dict[str, str], args: dict) -> object | None:
+    """Value → a single namespaced user-defined tag like 'bu_type: ...'."""
+    return [f"{args['prefix']}: {value}"]
+
+
+@transform("author_institution")
+def author_institution(value: str, row: dict[str, str], args: dict) -> object | None:
+    """First non-empty {prefix}N_institution column in the row (thesis university)."""
+    prefix = args.get("prefix", "author")
+    for n in range(1, args.get("max", 32) + 1):
+        institution = row.get(f"{prefix}{n}_institution", "").strip()
+        if institution:
+            return institution
+    return args.get("default")
 
 
 _CC_LICENSE_RE = re.compile(
