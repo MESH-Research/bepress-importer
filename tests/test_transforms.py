@@ -140,6 +140,92 @@ class TestAdditionalDescription:
         assert result == [{"description": "Methods notes", "type": {"id": "methods"}}]
 
 
+class TestConstantIfPresent:
+    def test_returns_fixed_value_when_source_has_data(self):
+        result = apply(
+            "constant_if_present", "© 2019 Someone. All rights reserved.",
+            args={"value": [{"id": "arr"}]},
+        )
+        assert result == [{"id": "arr"}]
+
+    def test_each_call_returns_an_independent_copy(self):
+        args = {"value": [{"id": "arr"}]}
+        first = apply("constant_if_present", "text", args=args)
+        second = apply("constant_if_present", "other", args=args)
+        first[0]["id"] = "mutated"
+        assert second == [{"id": "arr"}]
+
+
+class TestRelatedIdentifier:
+    def test_url_becomes_related_identifier_entry(self):
+        result = apply(
+            "related_identifier", "https://press.example.org/book/9781",
+            args={"scheme": "url", "relation": "isdescribedby"},
+        )
+        assert result == [
+            {
+                "identifier": "https://press.example.org/book/9781",
+                "scheme": "url",
+                "relation_type": {"id": "isdescribedby"},
+            }
+        ]
+
+    def test_non_url_is_omitted_when_scheme_is_url(self):
+        assert apply(
+            "related_identifier", "07/14/2023", args={"scheme": "url", "relation": "isdescribedby"}
+        ) is None
+
+
+class TestPrefixedTag:
+    def test_value_becomes_namespaced_tag(self):
+        assert apply("prefixed_tag", "text; 226 pages", args={"prefix": "bu_type"}) == [
+            "bu_type: text; 226 pages"
+        ]
+
+
+class TestAuthorInstitution:
+    def test_takes_first_nonempty_author_institution(self):
+        row = {
+            "author1_institution": "",
+            "author2_institution": "Bucknell University",
+            "author3_institution": "Elsewhere",
+        }
+        result = apply(
+            "author_institution", "anything", row=row, args={"prefix": "author", "max": 5}
+        )
+        assert result == "Bucknell University"
+
+    def test_default_when_no_author_has_institution(self):
+        result = apply(
+            "author_institution", "x", row={},
+            args={"prefix": "author", "max": 5, "default": "Bucknell University"},
+        )
+        assert result == "Bucknell University"
+
+    def test_no_default_and_no_institution_is_omitted(self):
+        assert apply(
+            "author_institution", "x", row={}, args={"prefix": "author", "max": 5}
+        ) is None
+
+
+class TestSplitAlsoColumns:
+    def test_sibling_column_values_are_merged(self):
+        result = apply(
+            "split", "History; Sociology",
+            row={"concentration": "Literary Studies"},
+            args={"sep": ";", "join": ", ", "also_columns": ["concentration"]},
+        )
+        assert result == "History, Sociology, Literary Studies"
+
+    def test_empty_sibling_is_ignored(self):
+        result = apply(
+            "split", "History",
+            row={"concentration": ""},
+            args={"sep": ";", "also_columns": ["concentration"]},
+        )
+        assert result == ["History"]
+
+
 class TestLicenseUrl:
     @pytest.mark.parametrize(
         ("raw", "expected"),
