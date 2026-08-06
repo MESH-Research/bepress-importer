@@ -1,3 +1,9 @@
+## 1.2.1 (2026-08-06)
+
+### Fix
+
+- **bucknell_remapped**: update documentation on bucknell remapping exercise
+
 ## 1.2.0 (2026-08-06)
 
 ### Feat
