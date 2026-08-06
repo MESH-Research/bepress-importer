@@ -17,11 +17,14 @@ from bepress_importer import edtf as edtf_module
 Transform = Callable[[str, dict[str, str], dict], object | None]
 
 TRANSFORMS: dict[str, Transform] = {}
+_ACCEPTS_EMPTY: set[str] = set()
 
 
-def transform(name: str) -> Callable[[Transform], Transform]:
+def transform(name: str, accepts_empty: bool = False) -> Callable[[Transform], Transform]:
     def register(fn: Transform) -> Transform:
         TRANSFORMS[name] = fn
+        if accepts_empty:
+            _ACCEPTS_EMPTY.add(name)
         return fn
 
     return register
@@ -32,9 +35,10 @@ def known_transforms() -> set[str]:
 
 
 def apply_transform(name: str, value: str, row: dict[str, str], args: dict) -> object | None:
-    """Apply a registered transform. Empty input values are omitted (None)."""
+    """Apply a registered transform. Empty input values are omitted (None),
+    except for transforms that scan the whole row rather than one cell."""
     value = value.strip()
-    if not value:
+    if not value and name not in _ACCEPTS_EMPTY:
         return None
     return TRANSFORMS[name](value, row, args)
 
@@ -154,7 +158,7 @@ def prefixed_tag(value: str, row: dict[str, str], args: dict) -> object | None:
     return [f"{args['prefix']}: {value}"]
 
 
-@transform("author_institution")
+@transform("author_institution", accepts_empty=True)
 def author_institution(value: str, row: dict[str, str], args: dict) -> object | None:
     """First non-empty {prefix}N_institution column in the row (thesis university)."""
     prefix = args.get("prefix", "author")
