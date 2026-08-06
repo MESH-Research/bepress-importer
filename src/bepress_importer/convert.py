@@ -196,6 +196,16 @@ def _describe_change(
         return "future embargo converted to a KC Works access embargo"
     if transform == "language_list":
         return "parsed into standard language-code entries"
+    if transform == "constant_if_present":
+        return "presence of source text mapped to a fixed entry (see profile)"
+    if transform == "related_identifier":
+        if value is None:
+            return "not a valid http(s) URL — value omitted"
+        return f"linked as a related identifier ({args.get('relation', 'related')})"
+    if transform == "prefixed_tag":
+        return f"imported as a namespaced tag ({args.get('prefix', '')})"
+    if transform == "author_institution":
+        return "taken from the first non-empty author institution column"
     if transform == "license_url":
         if value is None:
             return "license URL not recognized — value omitted"

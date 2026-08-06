@@ -54,6 +54,10 @@ _TRANSFORM_NOTES = {
     "embargo": "emitted as an access embargo only if still active",
     "language_list": "parsed into a list of language codes",
     "license_url": "license URL mapped to a KC Works rights id",
+    "constant_if_present": "presence of a value maps to a fixed entry",
+    "related_identifier": "linked as a related identifier",
+    "prefixed_tag": "imported as a namespaced user-defined tag",
+    "author_institution": "first non-empty author institution column",
 }
 
 

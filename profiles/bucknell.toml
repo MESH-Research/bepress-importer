@@ -1,24 +1,33 @@
 # Bucknell University Bepress export → KC Works mapping profile.
 #
+# Revised per the client's mapping instructions (bucknell_mapping.odt,
+# 2026-08); every change is documented in profiles/bucknell_remapping.MD.
+#
+# Conventions from those instructions:
+#   - custom_fields.kcr:publication_url is reserved for the *larger*
+#     publication (journal/series as a whole); URLs for the work itself go
+#     to metadata.identifiers (scheme url). No sheet currently maps
+#     kcr:publication_url.
+#   - Nested custom fields keep both namespace words: thesis:thesis,
+#     journal:journal, imprint:imprint.
+#
 # Deliberately unmapped columns (documented, not accidental):
-#   all sheets:  ctmtime (Bepress internal timestamp), season (consumed via
+#   all sheets:  ctmtime (Unix epoch of last Bepress *modification*, not
+#                creation — pending client confirmation before mapping to
+#                the record "created" timestamp), season (consumed via
 #                edtf_date's season_column arg), issue (consumed as the
 #                collection slug)
-#   Fac Journal Articles: comments (admin notes, often co-author HTML),
-#                custom_citation, open_access (workflow flag), pub_statement
-#                (publisher boilerplate), department2 (kcr:institution_department
-#                is single-valued), update_reason
-#   Theses:      concentration, multimedia_url/multimedia_format (streaming
-#                embeds with no KC Works equivalent)
-#   Books/Press: cover_image_url (empty), create_openurl, update_reason,
-#                bu_type ("text; NNN pages"), rights (long copyright prose),
-#                multimedia_url/format
-#   Digital Scholarship: custom_dates, project_type, material_type, audience,
-#                copyright_note (all empty in the export), custom_citation,
-#                second_department
-#   DSSRF:       rights (copyright prose), custom_citation
-#   Podcasts:    contributor (mixed free-text names+affiliations), duration,
-#                rights (copyright prose)
+#   Fac Journal Articles: open_access (workflow flag), department2 (the
+#                theses-only department2 instruction was not extended to
+#                other sheets), update_reason
+#   Theses:      multimedia_url (mixed junk/YouTube/Kaltura embeds —
+#                pending clarification), concentration is now merged into
+#                disciplines
+#   Books/Press: cover_image_url (empty), create_openurl (per instruction:
+#                rely on access.files permissions), multimedia_url (mixed
+#                dates/URLs — pending clarification), update_reason
+#   Podcasts:    contributor (mixed personal names and affiliations —
+#                pending clarification)
 
 [profile]
 name = "bucknell"
@@ -78,14 +87,34 @@ match = "Fac Journal Articles"
 
   [[sheet.field]]
   source = "pub_link"
-  target = "/custom_fields/kcr:publication_url"
-  transform = "url"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "url" }
+  append = true
 
   [[sheet.field]]
   source = "doi"
   target = "/metadata/identifiers"
   transform = "identifier"
   args = { scheme = "doi", normalize = "doi" }
+  append = true
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "custom_citation"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "pub_statement"
+  target = "/metadata/copyright"
+  transform = "strip_html"
 
   [[sheet.field]]
   source = "embargo_date"
@@ -139,19 +168,31 @@ match = "Masters Theses"
   source = "disciplines"
   target = "/custom_fields/kcr:discipline"
   transform = "split"
-  args = { sep = ";", join = ", " }
+  args = { sep = ";", join = ", ", also_columns = ["concentration"] }
 
   [[sheet.field]]
   source = "degree_name"
-  target = "/custom_fields/kcr:degree"
+  target = "/custom_fields/thesis:thesis/type"
 
   [[sheet.field]]
   source = "department"
-  target = "/custom_fields/kcr:institution_department"
+  target = "/custom_fields/thesis:thesis/department"
 
   [[sheet.field]]
   source = "department2"
-  target = "/custom_fields/kcr:sponsoring_institution"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "author1_institution"
+  target = "/custom_fields/thesis:thesis/university"
+  transform = "author_institution"
+  args = { prefix = "author", max = 5, default = "Bucknell University" }
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
 
   [[sheet.field]]
   source = "comments"
@@ -162,9 +203,6 @@ match = "Masters Theses"
   source = "embargo_date"
   target = "/access"
   transform = "embargo"
-
-  [sheet.constants]
-  "/custom_fields/thesis:university" = "Bucknell University"
 
 [[sheet]]
 match = "Honors Theses"
@@ -206,23 +244,41 @@ match = "Honors Theses"
   source = "disciplines"
   target = "/custom_fields/kcr:discipline"
   transform = "split"
-  args = { sep = ";", join = ", " }
+  args = { sep = ";", join = ", ", also_columns = ["concentration"] }
 
   [[sheet.field]]
   source = "degree_name"
-  target = "/custom_fields/kcr:degree"
+  target = "/custom_fields/thesis:thesis/type"
 
   [[sheet.field]]
   source = "department"
+  target = "/custom_fields/thesis:thesis/department"
+
+  [[sheet.field]]
+  source = "department2"
   target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "author1_institution"
+  target = "/custom_fields/thesis:thesis/university"
+  transform = "author_institution"
+  args = { prefix = "author", max = 5, default = "Bucknell University" }
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
 
   [[sheet.field]]
   source = "embargo_date"
   target = "/access"
   transform = "embargo"
-
-  [sheet.constants]
-  "/custom_fields/thesis:university" = "Bucknell University"
 
 # ---------------------------------------------------------------- books
 [[sheet]]
@@ -276,8 +332,14 @@ match = "BU Authored Books"
 
   [[sheet.field]]
   source = "buy_link"
-  target = "/custom_fields/kcr:publication_url"
-  transform = "url"
+  target = "/metadata/related_identifiers"
+  transform = "related_identifier"
+  args = { scheme = "url", relation = "isdescribedby" }
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
 
   [sheet.imprint]
   place = "city"
@@ -310,6 +372,14 @@ match = "Bu Press"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
   args = { sep = "," }
+  append = true
+
+  [[sheet.field]]
+  source = "bu_type"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "prefixed_tag"
+  args = { prefix = "bu_type" }
+  append = true
 
   [[sheet.field]]
   source = "disciplines"
@@ -332,11 +402,31 @@ match = "Bu Press"
   source = "distribution_license"
   target = "/metadata/rights"
   transform = "license_url"
+  append = true
+
+  [[sheet.field]]
+  source = "rights"
+  target = "/metadata/rights"
+  transform = "constant_if_present"
+  args = { value = [{ id = "arr" }] }
+  append = true
+
+  [[sheet.field]]
+  source = "rights"
+  target = "/metadata/copyright"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
 
   [[sheet.field]]
   source = "buy_link"
-  target = "/custom_fields/kcr:publication_url"
-  transform = "url"
+  target = "/metadata/related_identifiers"
+  transform = "related_identifier"
+  args = { scheme = "url", relation = "isdescribedby" }
 
   [sheet.constants]
   "/metadata/publisher" = "Bucknell University Press"
@@ -392,6 +482,18 @@ match = "BU Digital Scholarship"
   source = "comments"
   target = "/metadata/additional_descriptions"
   transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "custom_citation"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "copyright_note"
+  target = "/metadata/copyright"
+  transform = "strip_html"
 
   [[sheet.field]]
   source = "distribution_license"
@@ -399,9 +501,16 @@ match = "BU Digital Scholarship"
   transform = "license_url"
 
   [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
   source = "fulltext_url"
-  target = "/custom_fields/kcr:publication_url"
-  transform = "url"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "url" }
 
 # ------------------------------------------------------------- DSSRF
 [[sheet]]
@@ -445,11 +554,30 @@ match = "Student Digital Projects (DSSRF*"
   source = "comments"
   target = "/metadata/additional_descriptions"
   transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "custom_citation"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
 
   [[sheet.field]]
   source = "multimedia_url"
-  target = "/custom_fields/kcr:publication_url"
-  transform = "url"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "url" }
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "rights"
+  target = "/metadata/copyright"
+  transform = "strip_html"
 
   [[sheet.field]]
   source = "distribution_license"
@@ -506,8 +634,26 @@ match = "BU Podcasts"
 
   [[sheet.field]]
   source = "multimedia_url"
-  target = "/custom_fields/kcr:publication_url"
-  transform = "url"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "url" }
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "duration"
+  target = "/metadata/sizes"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "rights"
+  target = "/metadata/copyright"
+  transform = "strip_html"
 
   [[sheet.field]]
   source = "distribution_license"
