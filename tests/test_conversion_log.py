@@ -116,6 +116,30 @@ class TestConversionLogFiles:
         assert "mystery_column" in log["sheets"][0]["unmapped_columns"]
         assert "mystery_column" in (out / "conversion-log.txt").read_text()
 
+    def test_row_filter_appears_in_text_log(self, tmp_path):
+        csv = tmp_path / "inv.csv"
+        csv.write_text(
+            "title,state,context_key,issue\n"
+            "Keep,published,1,coll\nGone,withdrawn,2,coll\n"
+        )
+        profile_toml = tmp_path / "p.toml"
+        profile_toml.write_text(
+            '[profile]\nname = "p"\n[[sheet]]\nmatch = "*"\n'
+            '[sheet.filter]\ncolumn = "state"\nkeep = ["published"]\n'
+            '[[sheet.field]]\nsource = "title"\ntarget = "/metadata/title"\n'
+        )
+        out = tmp_path / "out"
+        result = CliRunner().invoke(
+            cli, ["convert", str(csv), "--profile", str(profile_toml),
+                  "-o", str(out), "--as-of", AS_OF],
+        )
+        assert result.exit_code == 0, result.output
+        text = (out / "conversion-log.txt").read_text()
+        assert "state" in text
+        assert "published" in text
+        assert "1" in text  # excluded count
+        assert "2" in text  # excluded record id
+
     def test_log_files_are_byte_deterministic(self, tmp_path):
         out1 = self.run_convert(tmp_path / "a")
         out2 = self.run_convert(tmp_path / "b")

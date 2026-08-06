@@ -94,6 +94,32 @@ def test_collection_slug_falls_back_to_sheet_name(tmp_path):
     assert list(result.collections) == ["my_sheet"]
 
 
+FILTER_PROFILE = (
+    '[profile]\nname = "p"\n[[sheet]]\nmatch = "*"\n'
+    '[sheet.filter]\ncolumn = "state"\nkeep = ["published"]\n'
+    '[[sheet.field]]\nsource = "title"\ntarget = "/metadata/title"\n'
+)
+
+
+def test_row_filter_excludes_rows_and_documents_them(tmp_path):
+    csv = tmp_path / "inv.csv"
+    csv.write_text(
+        "title,state,context_key,issue\n"
+        "Keep Me,published,1,coll\n"
+        "Withdrawn Item,withdrawn,2,coll\n"
+        "Pending Item,pending,3,coll\n"
+    )
+    profile_toml = tmp_path / "p.toml"
+    profile_toml.write_text(FILTER_PROFILE)
+    result = convert_workbook(read_workbook(csv), load_profile(profile_toml), as_of=AS_OF)
+    titles = [r["metadata"]["title"] for r in result.collections["coll"]]
+    assert titles == ["Keep Me"]
+    doc = result.sheet_docs[0]
+    assert doc["row_filter"]["column"] == "state"
+    assert doc["row_filter"]["excluded"] == 2
+    assert set(doc["row_filter"]["excluded_ids"]) == {"2", "3"}
+
+
 def test_explicit_collection_overrides_issue_column(tmp_path):
     csv = tmp_path / "journal.csv"
     csv.write_text("title,context_key,issue\nT,1,ignored_slug\n")

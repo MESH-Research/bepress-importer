@@ -131,6 +131,26 @@ def test_unknown_transform_allowed_without_registry(tmp_path):
     assert profile.sheets[0].fields[0].transform == "no_such"
 
 
+def test_row_filter_parsed(tmp_path):
+    path = write_profile(
+        tmp_path,
+        '[profile]\nname = "p"\n[[sheet]]\nmatch = "x"\n'
+        '[sheet.filter]\ncolumn = "state"\nkeep = ["published"]\n',
+    )
+    sheet = load_profile(path).sheets[0]
+    assert sheet.filter.column == "state"
+    assert sheet.filter.keep == ("published",)
+
+
+def test_row_filter_requires_column_and_keep(tmp_path):
+    path = write_profile(
+        tmp_path,
+        '[profile]\nname = "p"\n[[sheet]]\nmatch = "x"\n[sheet.filter]\ncolumn = "state"\n',
+    )
+    with pytest.raises(ProfileError, match="filter"):
+        load_profile(path)
+
+
 def test_resource_type_requires_column_or_constant(tmp_path):
     path = write_profile(
         tmp_path,
