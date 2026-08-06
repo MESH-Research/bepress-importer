@@ -24,6 +24,7 @@ class FieldMapping:
     transform: str | None = None
     args: dict = field(default_factory=dict)
     required: bool = False
+    append: bool = False  # allows several sources to accumulate into one list target
 
 
 @dataclass(frozen=True)
@@ -156,16 +157,20 @@ def _parse_sheet(
         raise ProfileError(f"{where}: 'match' is required")
 
     fields = []
-    seen_targets: set[str] = set()
+    target_appends: dict[str, bool] = {}
     for f_raw in raw.get("field", []):
         source, target = f_raw.get("source"), f_raw.get("target")
         if not source or not target:
             raise ProfileError(f"{where}: every field needs 'source' and 'target'")
         if not target.startswith("/"):
             raise ProfileError(f"{where}: target {target!r} must be a JSON pointer starting with '/'")
-        if target in seen_targets:
-            raise ProfileError(f"{where}: duplicate target {target!r}")
-        seen_targets.add(target)
+        append = f_raw.get("append", False)
+        if target in target_appends and not (append and target_appends[target]):
+            raise ProfileError(
+                f"{where}: duplicate target {target!r} — every field sharing a target "
+                "must declare append = true"
+            )
+        target_appends[target] = append
         transform = f_raw.get("transform")
         if transform and known_transforms is not None and transform not in known_transforms:
             raise ProfileError(f"{where}: unknown transform {transform!r} for source {source!r}")
@@ -176,6 +181,7 @@ def _parse_sheet(
                 transform=transform,
                 args=dict(f_raw.get("args", {})),
                 required=f_raw.get("required", False),
+                append=append,
             )
         )
 
