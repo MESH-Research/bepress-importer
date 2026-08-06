@@ -131,6 +131,28 @@ def test_unknown_transform_allowed_without_registry(tmp_path):
     assert profile.sheets[0].fields[0].transform == "no_such"
 
 
+def test_duplicate_targets_allowed_when_all_declare_append(tmp_path):
+    path = write_profile(
+        tmp_path,
+        '[profile]\nname = "p"\n[[sheet]]\nmatch = "x"\n'
+        '[[sheet.field]]\nsource = "doi"\ntarget = "/metadata/identifiers"\nappend = true\n'
+        '[[sheet.field]]\nsource = "isbn"\ntarget = "/metadata/identifiers"\nappend = true\n',
+    )
+    sheet = load_profile(path).sheets[0]
+    assert [f.source for f in sheet.fields] == ["doi", "isbn"]
+
+
+def test_duplicate_targets_rejected_when_append_missing_on_one(tmp_path):
+    path = write_profile(
+        tmp_path,
+        '[profile]\nname = "p"\n[[sheet]]\nmatch = "x"\n'
+        '[[sheet.field]]\nsource = "doi"\ntarget = "/metadata/identifiers"\nappend = true\n'
+        '[[sheet.field]]\nsource = "isbn"\ntarget = "/metadata/identifiers"\n',
+    )
+    with pytest.raises(ProfileError, match="append"):
+        load_profile(path)
+
+
 def test_row_filter_parsed(tmp_path):
     path = write_profile(
         tmp_path,
