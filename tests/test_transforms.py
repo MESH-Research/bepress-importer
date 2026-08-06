@@ -207,6 +207,21 @@ class TestAuthorInstitution:
             "author_institution", "x", row={}, args={"prefix": "author", "max": 5}
         ) is None
 
+    def test_runs_even_when_its_own_source_cell_is_empty(self):
+        # author1_institution may be blank while author2 carries the university
+        row = {"author1_institution": "", "author2_institution": "Bucknell University"}
+        result = apply(
+            "author_institution", "", row=row, args={"prefix": "author", "max": 5}
+        )
+        assert result == "Bucknell University"
+
+    def test_default_applies_when_source_cell_is_empty(self):
+        result = apply(
+            "author_institution", "", row={},
+            args={"prefix": "author", "max": 5, "default": "Bucknell University"},
+        )
+        assert result == "Bucknell University"
+
 
 class TestSplitAlsoColumns:
     def test_sibling_column_values_are_merged(self):
