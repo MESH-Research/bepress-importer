@@ -1,5 +1,7 @@
 # Client data — never commit
 Data/
+*.xlsx
+!tests/fixtures/*.xlsx
 
 # AI assistant files — never commit
 .claude/
