@@ -67,6 +67,67 @@ class TestConvert:
         assert "2" in result.output
 
 
+def write_inventory_xlsx(path):
+    """A miniature Content Inventory export: data sheet plus 'Field Names' legend."""
+    import openpyxl
+
+    book = openpyxl.Workbook()
+    data = book.active
+    data.title = "Content Inventory"
+    data.append([
+        "title", "state", "submission_date", "document_type", "abstract",
+        "publication_date", "author1_fname", "author1_lname", "context_key",
+    ])
+    data.append([
+        "A Study of Things", "published", "2019-05-01", "article", "An abstract.",
+        "2020-01-01", "Ada", "Lovelace", 12345,
+    ])
+    data.append([
+        "Withdrawn Item", "withdrawn", "2019-05-01", "article", "Gone.",
+        "2020-01-01", "Ada", "Lovelace", 12346,
+    ])
+    legend = book.create_sheet("Field Names")
+    legend.append(["Fields included"])
+    legend.append(["title"])
+    book.save(path)
+
+
+class TestConvertAutodetect:
+    def test_convert_detects_content_inventory_without_profile(self, tmp_path):
+        xlsx = tmp_path / "inventory.xlsx"
+        write_inventory_xlsx(xlsx)
+        out = tmp_path / "out"
+        result = run("convert", xlsx, "-o", out, "--as-of", "2026-08-17")
+        assert result.exit_code == 0, result.output
+        assert "inventory" in result.output
+        records = json.loads((out / "inventory.json").read_text())
+        assert len(records) == 1  # withdrawn row filtered out
+        assert records[0]["metadata"]["title"] == "A Study of Things"
+        report = json.loads((out / "report.json").read_text())
+        assert report["unmatched_sheets"] == ["Field Names"]
+
+    def test_convert_without_profile_on_unknown_format_errors(self, tmp_path):
+        result = run(
+            "convert", FIXTURES / "journal.csv", "-o", tmp_path / "out",
+            "--as-of", "2026-08-17",
+        )
+        assert result.exit_code != 0
+        assert "--profile" in result.output
+
+    def test_explicit_profile_overrides_detection(self, tmp_path):
+        xlsx = tmp_path / "inventory.xlsx"
+        write_inventory_xlsx(xlsx)
+        out = tmp_path / "out"
+        result = run(
+            "convert", xlsx, "--profile", FIXTURES / "golden_profile.toml",
+            "-o", out, "--as-of", "2026-08-17",
+        )
+        assert result.exit_code == 0, result.output
+        report = json.loads((out / "report.json").read_text())
+        # the golden profile matches neither sheet, proving detection was not used
+        assert set(report["unmatched_sheets"]) == {"Content Inventory", "Field Names"}
+
+
 class TestInspect:
     def test_lists_sheets_rows_and_columns(self):
         result = run("inspect", FIXTURES / "journal.csv")

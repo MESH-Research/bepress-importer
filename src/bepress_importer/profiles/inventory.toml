@@ -1,11 +1,17 @@
 # Bepress site-wide inventory export → KC Works mapping profile.
 #
-# An inventory export is a single flattened CSV: every collection's rows in
-# one sheet with the union of all columns (~585). Rows carry a `state`
-# column; only `published` rows are imported (withdrawn/pending/rejected are
-# excluded and listed in the conversion log). Records are keyed on
-# `context_key`; inventory exports carry no calc_url, so no url identifier
-# is emitted.
+# An inventory export is a single flattened table: every collection's rows
+# with the union of all columns (~585). It arrives either as a CSV or as a
+# "Content Inventory" .xlsx workbook (data sheet plus a "Field Names" legend
+# sheet, which `require_columns` below keeps out of the conversion). Rows
+# carry a `state` column; only `published` rows are imported
+# (withdrawn/pending/rejected are excluded and listed in the conversion log).
+# Records are keyed on `context_key`; inventory exports carry no calc_url,
+# so no url identifier is emitted.
+#
+# `signature_columns` lets `bepress-importer convert` auto-detect this
+# format when no --profile is given: collection exports have no `state`
+# column, so the three together identify an inventory export.
 #
 # Deliberately unmapped columns (documented, not accidental): the export
 # contains dozens of sparsely-used per-collection columns (exhibition,
@@ -20,6 +26,7 @@
 [profile]
 name = "inventory"
 schema_version = 1
+signature_columns = ["context_key", "state", "document_type"]
 
 [defaults]
 record_id.column = "context_key"
@@ -33,6 +40,7 @@ max = 20
 [[sheet]]
 match = "*"
 collection = "inventory"
+require_columns = ["context_key", "state", "document_type"]
 
   [sheet.filter]
   column = "state"
@@ -88,17 +96,35 @@ collection = "inventory"
   breakout = "other-event"
   tour = "other-event"
   other = "textDocument-other"
+  abstracts = "textDocument-abstract"
+  installation = "image-visualArt"
+  informationalworks = "textDocument-documentation"
+  webbasedmaterials = "other-interactiveResource"
+  # journal front matter, event programs and other minor print genres
+  fullissue = "textDocument-other"
+  full_issue = "textDocument-other"
+  acknowledgements = "textDocument-other"
+  contributors = "textDocument-other"
+  introductions = "textDocument-other"
+  newsletters = "textDocument-other"
+  printmaterials = "textDocument-other"
+  program = "textDocument-other"
+  "Program (Publication)" = "textDocument-other"
+  response = "textDocument-other"
+  letter = "textDocument-other"
 
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
   required = true
 
+  # events (conferences, exhibitions...) carry no publication_date; their
+  # start_date is the closest equivalent
   [[sheet.field]]
   source = "publication_date"
   target = "/metadata/publication_date"
   transform = "edtf_date"
-  args = { season_column = "season" }
+  args = { season_column = "season", fallback_columns = ["start_date"] }
   required = true
 
   [[sheet.field]]

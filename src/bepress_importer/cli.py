@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from bepress_importer.convert import convert_workbook
-from bepress_importer.profiles import ProfileError, load_profile
+from bepress_importer.profiles import ProfileError, detect_profile, load_profile
 from bepress_importer.readers import Workbook, read_workbook
 from bepress_importer.serialize import write_json
 from bepress_importer.transforms import known_transforms
@@ -37,7 +37,7 @@ def inspect(input_file: str, profile_path: str | None, scaffold: bool) -> None:
         if profile is None:
             click.echo("  columns: " + ", ".join(table.columns))
             continue
-        sheet = profile.match_sheet(table.name)
+        sheet = profile.match_sheet(table.name, columns=table.columns)
         if sheet is None:
             click.echo("  (no profile match)")
             continue
@@ -79,8 +79,10 @@ def _load_profile_or_fail(profile_path: str):
 
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True, dir_okay=False))
-@click.option("--profile", "profile_path", required=True,
-              type=click.Path(exists=True, dir_okay=False))
+@click.option("--profile", "profile_path",
+              type=click.Path(exists=True, dir_okay=False),
+              help="Mapping profile (default: auto-detect a shipped profile, e.g. a "
+                   "Content Inventory export).")
 @click.option("-o", "--output", "output_dir", required=True, type=click.Path(file_okay=False))
 @click.option("--sheet", "sheets", multiple=True,
               help="Convert only these sheets (repeatable; default: all matched).")
@@ -88,7 +90,8 @@ def _load_profile_or_fail(profile_path: str):
               help="ISO date for embargo-activity decisions (default: today; "
                    "pass explicitly for reproducible output).")
 def convert(
-    input_file: str, profile_path: str, output_dir: str, sheets: tuple[str, ...], as_of: str | None
+    input_file: str, profile_path: str | None, output_dir: str, sheets: tuple[str, ...],
+    as_of: str | None
 ) -> None:
     """Convert an export to per-collection KC Works JSON.
 
@@ -102,7 +105,16 @@ def convert(
         if missing:
             raise click.ClickException(f"Sheets not found in input: {', '.join(missing)}")
         workbook = Workbook(tables=tuple(t for t in workbook.tables if t.name in sheets))
-    profile = _load_profile_or_fail(profile_path)
+    if profile_path:
+        profile = _load_profile_or_fail(profile_path)
+    else:
+        profile = detect_profile(workbook, known_transforms=known_transforms())
+        if profile is None:
+            raise click.ClickException(
+                "Could not detect the export format from its columns; "
+                "pass --profile explicitly"
+            )
+        click.echo(f"detected format: {profile.name} (shipped profile)")
     as_of = as_of or datetime.date.today().isoformat()  # noqa: DTZ011
 
     result = convert_workbook(workbook, profile, as_of=as_of)

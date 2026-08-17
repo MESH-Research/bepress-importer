@@ -41,6 +41,33 @@ class TestEdtfDate:
     def test_unparseable_value_passes_through_for_wrangler(self):
         assert apply("edtf_date", "Sometime 2015") == "Sometime 2015"
 
+    def test_empty_value_falls_back_to_named_columns(self):
+        result = apply(
+            "edtf_date", "", row={"start_date": "2012-11-17"},
+            args={"fallback_columns": ["start_date"]},
+        )
+        assert result == "2012-11-17"
+
+    def test_fallback_scans_columns_in_order_skipping_empties(self):
+        result = apply(
+            "edtf_date", "", row={"start_date": "  ", "end_date": "2012-11-17"},
+            args={"fallback_columns": ["start_date", "end_date"]},
+        )
+        assert result == "2012-11-17"
+
+    def test_non_empty_value_ignores_fallback_columns(self):
+        result = apply(
+            "edtf_date", "2015-04-15", row={"start_date": "2012-11-17"},
+            args={"fallback_columns": ["start_date"]},
+        )
+        assert result == "2015-04-15"
+
+    def test_empty_value_with_empty_fallbacks_is_omitted(self):
+        result = apply(
+            "edtf_date", "", row={"start_date": ""}, args={"fallback_columns": ["start_date"]}
+        )
+        assert result is None
+
 
 class TestIdentifier:
     def test_doi_url_is_normalized(self):

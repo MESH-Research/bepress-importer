@@ -104,7 +104,7 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
     """
     result = ConversionResult()
     for table in workbook.tables:
-        sheet_profile = profile.match_sheet(table.name)
+        sheet_profile = profile.match_sheet(table.name, columns=table.columns)
         if sheet_profile is None:
             result.unmatched_sheets.append(table.name)
             continue

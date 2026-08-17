@@ -43,9 +43,20 @@ def apply_transform(name: str, value: str, row: dict[str, str], args: dict) -> o
     return TRANSFORMS[name](value, row, args)
 
 
-@transform("edtf_date")
+@transform("edtf_date", accepts_empty=True)
 def edtf_date(value: str, row: dict[str, str], args: dict) -> object | None:
-    """ISO-ish date (+ optional season column) → EDTF; unparseable input passes through."""
+    """ISO-ish date (+ optional season column) → EDTF; unparseable input passes through.
+
+    args.fallback_columns names sibling columns tried in order when the source
+    cell is empty (e.g. an event's start_date standing in for publication_date).
+    """
+    if not value:
+        value = next(
+            (v for col in args.get("fallback_columns", []) if (v := row.get(col, "").strip())),
+            "",
+        )
+        if not value:
+            return None
     season_column = args.get("season_column")
     season = row.get(season_column, "") if season_column else None
     style = args.get("style", "edtf-season")

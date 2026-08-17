@@ -38,6 +38,10 @@ uv run bepress-importer inspect "Data/Export.xls" --profile profiles/bucknell.to
 uv run bepress-importer convert "Data/Export.xls" \
     --profile profiles/bucknell.toml -o converted --as-of 2026-07-28
 
+# 2b. Content Inventory exports are detected from their columns — no --profile
+#     needed (the shipped inventory profile is used automatically)
+uv run bepress-importer convert "Data/Inventory.xlsx" -o converted --as-of 2026-07-28
+
 # 3. Validate against KC Works vocabularies and field rules (read-only)
 uv run bepress-importer check converted --as-of 2026-07-28
 
@@ -110,10 +114,14 @@ uv run bepress-importer inspect "Data/NewClient.xls" --scaffold > profiles/newcl
 ```
 
 Two profiles ship with the tool: `profiles/bucknell.toml` (multi-sheet
-collection export) and `profiles/inventory.toml` (site-wide inventory
-report: one flattened CSV of every collection, cp1252-encoded, keyed on
-`context_key`). Inventory exports include unpublished material, so that
-profile uses a row filter —
+collection export) and the packaged
+`src/bepress_importer/profiles/inventory.toml` (site-wide inventory report:
+one flattened table of every collection keyed on `context_key`, arriving
+either as a cp1252 CSV or as a "Content Inventory" .xlsx workbook whose
+"Field Names" legend sheet is skipped). The inventory profile declares
+`signature_columns`, so `convert` run without `--profile` detects the format
+from the columns and uses it automatically. Inventory exports include
+unpublished material, so that profile uses a row filter —
 
 ```toml
 [sheet.filter]
@@ -125,7 +133,8 @@ keep = ["published"]
 accumulate into one list target (e.g. `doi` and `isbn` both appending to
 `/metadata/identifiers`) by declaring `append = true` on each field.
 
-Transforms available to profiles: `edtf_date` (with season support),
+Transforms available to profiles: `edtf_date` (with season support and
+fallback columns for empty cells, e.g. an event's `start_date`),
 `identifier` (DOI normalization, segment splitting), `split`, `strip_html`,
 `additional_description`, `url`, `embargo`, `language_list`, `license_url`.
 Composite builders: `authorN_*` columns → `creators` (corporate detection

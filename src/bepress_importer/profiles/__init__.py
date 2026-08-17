@@ -96,6 +96,7 @@ class SheetProfile:
     constants: dict[str, str] = field(default_factory=dict)
     collection: str | None = None
     filter: RowFilter | None = None
+    require_columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,13 +104,43 @@ class Profile:
     name: str
     defaults: Defaults
     sheets: tuple[SheetProfile, ...]
+    signature_columns: tuple[str, ...] = ()
 
-    def match_sheet(self, sheet_name: str) -> SheetProfile | None:
-        """Return the first sheet profile whose match pattern fits, else None."""
+    def match_sheet(
+        self, sheet_name: str, columns: tuple[str, ...] | None = None
+    ) -> SheetProfile | None:
+        """Return the first sheet profile whose match pattern fits, else None.
+
+        When `columns` is given, a sheet profile with `require_columns` only
+        matches if every required column is present — this keeps legend sheets
+        (e.g. an inventory export's "Field Names" list) out of the conversion.
+        """
         for sheet in self.sheets:
-            if fnmatch.fnmatchcase(sheet_name, sheet.match):
-                return sheet
+            if not fnmatch.fnmatchcase(sheet_name, sheet.match):
+                continue
+            if columns is not None and not set(sheet.require_columns) <= set(columns):
+                continue
+            return sheet
         return None
+
+
+SHIPPED_PROFILE_DIR = Path(__file__).parent
+
+
+def detect_profile(workbook, known_transforms: set[str] | None = None) -> Profile | None:
+    """Return the shipped profile whose format signature matches the workbook, else None.
+
+    A profile declares its signature as `signature_columns` in its [profile]
+    head; the format is recognized when any sheet carries all of them.
+    """
+    for path in sorted(SHIPPED_PROFILE_DIR.glob("*.toml")):
+        profile = load_profile(path, known_transforms=known_transforms)
+        if not profile.signature_columns:
+            continue
+        signature = set(profile.signature_columns)
+        if any(signature <= set(table.columns) for table in workbook.tables):
+            return profile
+    return None
 
 
 def load_profile(path: str | Path, known_transforms: set[str] | None = None) -> Profile:
@@ -131,7 +162,12 @@ def load_profile(path: str | Path, known_transforms: set[str] | None = None) -> 
         _parse_sheet(path, i, raw, known_transforms)
         for i, raw in enumerate(data.get("sheet", []))
     )
-    return Profile(name=name, defaults=defaults, sheets=sheets)
+    return Profile(
+        name=name,
+        defaults=defaults,
+        sheets=sheets,
+        signature_columns=tuple(head.get("signature_columns", [])),
+    )
 
 
 def _parse_defaults(raw: dict) -> Defaults:
@@ -255,4 +291,5 @@ def _parse_sheet(
         constants=constants,
         collection=raw.get("collection"),
         filter=row_filter,
+        require_columns=tuple(raw.get("require_columns", [])),
     )
