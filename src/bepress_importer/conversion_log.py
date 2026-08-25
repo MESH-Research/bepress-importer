@@ -83,6 +83,13 @@ def describe_sheet(
         "sheet": table.name,
         "collection": collection,
         "records": len(table.rows),
+    }
+    if sheet.select is not None:
+        doc["select"] = {
+            "column": sheet.select.column,
+            "values": list(sheet.select.values),
+        }
+    doc |= {
         "record_id": {
             "column": defaults.record_id_column,
             "target": "metadata.identifiers (scheme import-recid)",
@@ -146,11 +153,13 @@ def build_payload(
     as_of: str,
     sheet_docs: list[dict],
     value_changes: list,
+    issues: list = (),
 ) -> dict:
     return {
         "input": input_name,
         "profile": profile_name,
         "as_of": as_of,
+        "issues": [vars(issue) for issue in issues],
         "sheets": sheet_docs,
         "value_changes": [vars(change) for change in value_changes],
     }
@@ -176,6 +185,17 @@ def render_text(payload: dict) -> str:
         "Bepress export to KC Works records is fully inspectable.",
     ]
 
+    issues = payload.get("issues", [])
+    if issues:
+        lines += [
+            "",
+            f"=== CONVERSION ISSUES ({len(issues)}) — review these first ===",
+            "",
+        ]
+        for issue in issues:
+            record = issue["record_id"] or "?"
+            lines.append(f"[{issue['sheet']} {record}] {issue['message']}")
+
     for doc in payload["sheets"]:
         lines += [
             "",
@@ -192,6 +212,15 @@ def render_text(payload: dict) -> str:
             lines += [
                 f"  {doc['source_url']['column']} → {doc['source_url']['target']}",
                 f"    why: {doc['source_url']['why']}",
+            ]
+        if "select" in doc:
+            sel = doc["select"]
+            lines += [
+                "Row selection:",
+                (
+                    f"  this group covers rows whose {sel['column']} is in "
+                    f"{sel['values']}"
+                ),
             ]
         if "row_filter" in doc:
             rf = doc["row_filter"]

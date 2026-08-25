@@ -1,122 +1,125 @@
-"""Behavioural tests for export-format detection (Content Inventory workbooks)."""
+"""Behavioural tests for export-format recognition via profile signatures.
+
+Profiles live in the user's profile directory (e.g. profiles/); one that
+declares `signature_columns` claims a format. `detect_profile` scans a
+directory and returns the path of the profile whose signature the workbook
+carries — used to hint at the right profile when the wrong one is passed.
+"""
 
 from pathlib import Path
 
 import pytest
 
-from bepress_importer.convert import convert_workbook
-from bepress_importer.profiles import SHIPPED_PROFILE_DIR, detect_profile, load_profile
+from bepress_importer.profiles import detect_profile, load_profile
 from bepress_importer.readers import Table, Workbook
 from bepress_importer.transforms import known_transforms
 
-AS_OF = "2026-08-17"
-
 INVENTORY_COLUMNS = (
-    "title", "state", "submission_date", "document_type", "abstract", "keywords",
+    "title", "state", "document_type", "publication", "abstract", "keywords",
     "author1_fname", "author1_lname", "publication_date", "start_date", "context_key",
 )
 
+COLLECTION_COLUMNS = tuple(
+    c for c in INVENTORY_COLUMNS if c not in ("state", "publication")
+)
 
-def inventory_table(name="Content Inventory", rows=()):
-    return Table(name=name, columns=INVENTORY_COLUMNS, rows=tuple(rows))
+USER_PROFILE_DIR = Path(__file__).parent.parent / "profiles"
 
 
-def legend_table():
-    return Table(
-        name="Field Names",
-        columns=("Fields included",),
-        rows=({"Fields included": "title"}, {"Fields included": "state"}),
+def inventory_workbook():
+    return Workbook(
+        tables=(
+            Table(name="Content Inventory", columns=INVENTORY_COLUMNS, rows=()),
+            Table(name="Field Names", columns=("Fields included",), rows=()),
+        )
     )
 
 
-def inventory_row(**overrides):
-    row = {column: "" for column in INVENTORY_COLUMNS}
-    row.update(
-        title="A Study of Things",
-        state="published",
-        document_type="article",
-        publication_date="2020-01-01",
-        author1_fname="Ada",
-        author1_lname="Lovelace",
-        context_key="12345",
+def collection_workbook():
+    return Workbook(
+        tables=(Table(name="Fac Journal Articles", columns=COLLECTION_COLUMNS, rows=()),)
     )
-    row.update(overrides)
-    return row
+
+
+SIGNATURE_PROFILE = """
+[profile]
+name = "sig"
+schema_version = 1
+signature_columns = ["context_key", "state", "document_type"]
+
+[[sheet]]
+match = "*"
+require_columns = ["context_key", "state", "document_type"]
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+"""
+
+PLAIN_PROFILE = """
+[profile]
+name = "plain"
+schema_version = 1
+
+[[sheet]]
+match = "Fac Journal Articles"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+"""
+
+
+@pytest.fixture()
+def profile_dir(tmp_path):
+    (tmp_path / "sig.toml").write_text(SIGNATURE_PROFILE)
+    (tmp_path / "plain.toml").write_text(PLAIN_PROFILE)
+    return tmp_path
 
 
 class TestDetectProfile:
-    def test_recognizes_content_inventory_workbook(self):
-        workbook = Workbook(tables=(inventory_table(), legend_table()))
-        profile = detect_profile(workbook, known_transforms=known_transforms())
-        assert profile is not None
-        assert profile.name == "inventory"
-
-    def test_returns_none_for_collection_export(self):
-        # collection exports (e.g. Bucknell .xls) have no `state` column
-        columns = tuple(c for c in INVENTORY_COLUMNS if c not in ("state", "submission_date"))
-        workbook = Workbook(tables=(Table(name="Fac Journal Articles", columns=columns, rows=()),))
-        assert detect_profile(workbook, known_transforms=known_transforms()) is None
-
-    def test_returns_none_for_empty_workbook(self):
-        workbook = Workbook(tables=(Table(name="empty", columns=(), rows=()),))
-        assert detect_profile(workbook, known_transforms=known_transforms()) is None
-
-
-@pytest.fixture(scope="module")
-def profile():
-    return load_profile(
-        SHIPPED_PROFILE_DIR / "inventory.toml", known_transforms=known_transforms()
-    )
-
-
-@pytest.fixture(scope="module")
-def result(profile):
-    event_row = inventory_row(
-        title="Opening Keynote", document_type="keynote",
-        publication_date="", start_date="2012-11-17", context_key="12346",
-    )
-    workbook = Workbook(
-        tables=(
-            inventory_table(rows=[inventory_row(), event_row]),
-            legend_table(),
+    def test_returns_the_path_of_the_matching_signature_profile(self, profile_dir):
+        found = detect_profile(
+            inventory_workbook(), profile_dir, known_transforms=known_transforms()
         )
-    )
-    return convert_workbook(workbook, profile, as_of=AS_OF)
+        assert found == profile_dir / "sig.toml"
+
+    def test_returns_none_when_no_signature_matches(self, profile_dir):
+        assert detect_profile(
+            collection_workbook(), profile_dir, known_transforms=known_transforms()
+        ) is None
+
+    def test_profiles_without_signatures_never_match(self, tmp_path):
+        (tmp_path / "plain.toml").write_text(PLAIN_PROFILE)
+        assert detect_profile(
+            inventory_workbook(), tmp_path, known_transforms=known_transforms()
+        ) is None
+
+    def test_empty_directory_matches_nothing(self, tmp_path):
+        assert detect_profile(inventory_workbook(), tmp_path) is None
 
 
-class TestInventoryProfileSignature:
-    def test_profile_declares_a_format_signature(self, profile):
-        assert set(profile.signature_columns) == {"context_key", "state", "document_type"}
+class TestUserProfileDirectory:
+    def test_inventory_bucknell_lives_in_the_user_profile_dir(self):
+        assert (USER_PROFILE_DIR / "inventory-bucknell.toml").is_file()
 
-    def test_data_sheet_matches_with_its_columns(self, profile):
-        assert profile.match_sheet("Content Inventory", columns=INVENTORY_COLUMNS) is not None
+    def test_no_profile_ships_inside_the_package(self):
+        package_dir = (
+            Path(__file__).parent.parent / "src" / "bepress_importer" / "profiles"
+        )
+        assert list(package_dir.glob("*.toml")) == []
 
-    def test_legend_sheet_does_not_match(self, profile):
-        assert profile.match_sheet("Field Names", columns=("Fields included",)) is None
+    def test_inventory_bucknell_claims_the_content_inventory_format(self):
+        found = detect_profile(
+            inventory_workbook(), USER_PROFILE_DIR, known_transforms=known_transforms()
+        )
+        assert found == USER_PROFILE_DIR / "inventory-bucknell.toml"
 
-    def test_matching_by_name_alone_still_works(self, profile):
-        assert profile.match_sheet("inventory") is not None
-
-
-class TestConvertInventoryWorkbook:
-    def test_data_rows_become_records(self, result):
-        records = result.collections["inventory"]
-        assert len(records) == 2
-        assert records[0]["metadata"]["title"] == "A Study of Things"
-        assert records[0]["metadata"]["resource_type"] == {"id": "textDocument-journalArticle"}
-
-    def test_event_rows_take_publication_date_from_start_date(self, result):
-        event = result.collections["inventory"][1]
-        assert event["metadata"]["title"] == "Opening Keynote"
-        assert event["metadata"]["publication_date"] == "2012-11-17"
-
-    def test_legend_sheet_is_reported_unmatched_not_converted(self, result):
-        assert result.unmatched_sheets == ["Field Names"]
-        assert set(result.collections) == {"inventory"}
-
-
-class TestShippedProfileLocation:
-    def test_inventory_profile_ships_inside_the_package(self):
-        assert (SHIPPED_PROFILE_DIR / "inventory.toml").is_file()
-        assert SHIPPED_PROFILE_DIR.name == "profiles"
-        assert Path(SHIPPED_PROFILE_DIR).parent.name == "bepress_importer"
+    def test_bucknell_collection_export_matches_no_signature(self):
+        profile = load_profile(
+            USER_PROFILE_DIR / "bucknell.toml", known_transforms=known_transforms()
+        )
+        assert profile.signature_columns == ()
+        assert detect_profile(
+            collection_workbook(), USER_PROFILE_DIR, known_transforms=known_transforms()
+        ) is None

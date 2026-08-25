@@ -104,23 +104,64 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
     """
     result = ConversionResult()
     for table in workbook.tables:
-        sheet_profile = profile.match_sheet(table.name, columns=table.columns)
-        if sheet_profile is None:
+        blocks = profile.match_sheets(table.name, columns=table.columns)
+        if not blocks:
             result.unmatched_sheets.append(table.name)
             continue
-        slug = _collection_slug(table, sheet_profile)
-        table, filter_doc = _apply_row_filter(table, sheet_profile, profile.defaults)
-        records = _convert_sheet(
-            table, sheet_profile, profile.defaults, as_of, result.issues,
-            slug, result.value_changes,
-        )
-        result.collections.setdefault(slug, []).extend(records)
-        result.collections[slug].sort(key=lambda r: _sort_key(_record_id(r)))
-        doc = conversion_log.describe_sheet(table, sheet_profile, profile.defaults, slug)
-        if filter_doc:
-            doc["row_filter"] = filter_doc
-        result.sheet_docs.append(doc)
+        for block, block_table in _route_rows(table, blocks, profile.defaults, result.issues):
+            slug = _collection_slug(block_table, block)
+            block_table, filter_doc = _apply_row_filter(block_table, block, profile.defaults)
+            records = _convert_sheet(
+                block_table, block, profile.defaults, as_of, result.issues,
+                slug, result.value_changes,
+            )
+            result.collections.setdefault(slug, []).extend(records)
+            result.collections[slug].sort(key=lambda r: _sort_key(_record_id(r)))
+            doc = conversion_log.describe_sheet(
+                block_table, block, profile.defaults, slug
+            )
+            if filter_doc:
+                doc["row_filter"] = filter_doc
+            result.sheet_docs.append(doc)
     return result
+
+
+def _route_rows(
+    table: Table, blocks: tuple[SheetProfile, ...], defaults: Defaults, issues: list[Issue]
+) -> list[tuple[SheetProfile, Table]]:
+    """Send each row to the first block whose `select` matches it.
+
+    A block without a select is the catch-all. Blocks that receive no rows are
+    skipped; rows no block selects are reported as issues (they would
+    otherwise vanish silently).
+    """
+    if len(blocks) == 1 and blocks[0].select is None:
+        return [(blocks[0], table)]
+    routed: dict[int, list[dict]] = {i: [] for i in range(len(blocks))}
+    for row in table.rows:
+        for i, block in enumerate(blocks):
+            select = block.select
+            if select is None or row.get(select.column, "").strip() in select.values:
+                routed[i].append(row)
+                break
+        else:
+            record_id = row.get(defaults.record_id_column, "").strip() or "?"
+            selectors = ", ".join(
+                sorted({b.select.column for b in blocks if b.select})
+            )
+            issues.append(
+                Issue(
+                    table.name,
+                    record_id,
+                    f"row not covered by any profile section (no select on "
+                    f"{selectors} matches it)",
+                )
+            )
+    return [
+        (blocks[i], Table(name=table.name, columns=table.columns, rows=tuple(rows)))
+        for i, rows in routed.items()
+        if rows
+    ]
 
 
 def _apply_row_filter(

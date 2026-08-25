@@ -79,10 +79,10 @@ def _load_profile_or_fail(profile_path: str):
 
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True, dir_okay=False))
-@click.option("--profile", "profile_path",
+@click.option("--profile", "profile_path", required=True,
               type=click.Path(exists=True, dir_okay=False),
-              help="Mapping profile (default: auto-detect a shipped profile, e.g. a "
-                   "Content Inventory export).")
+              help="Mapping profile; must fit the export's format (a Content "
+                   "Inventory export needs an inventory profile).")
 @click.option("-o", "--output", "output_dir", required=True, type=click.Path(file_okay=False))
 @click.option("--sheet", "sheets", multiple=True,
               help="Convert only these sheets (repeatable; default: all matched).")
@@ -90,7 +90,7 @@ def _load_profile_or_fail(profile_path: str):
               help="ISO date for embargo-activity decisions (default: today; "
                    "pass explicitly for reproducible output).")
 def convert(
-    input_file: str, profile_path: str | None, output_dir: str, sheets: tuple[str, ...],
+    input_file: str, profile_path: str, output_dir: str, sheets: tuple[str, ...],
     as_of: str | None
 ) -> None:
     """Convert an export to per-collection KC Works JSON.
@@ -105,19 +105,32 @@ def convert(
         if missing:
             raise click.ClickException(f"Sheets not found in input: {', '.join(missing)}")
         workbook = Workbook(tables=tuple(t for t in workbook.tables if t.name in sheets))
-    if profile_path:
-        profile = _load_profile_or_fail(profile_path)
-    else:
-        profile = detect_profile(workbook, known_transforms=known_transforms())
-        if profile is None:
+    profile = _load_profile_or_fail(profile_path)
+    if profile.signature_columns:
+        signature = set(profile.signature_columns)
+        if not any(signature <= set(t.columns) for t in workbook.tables):
             raise click.ClickException(
-                "Could not detect the export format from its columns; "
-                "pass --profile explicitly"
+                f"profile {profile.name!r} expects an export carrying the columns "
+                f"{', '.join(profile.signature_columns)}, but no sheet in "
+                f"{input_file} has them — this is not that export format"
             )
-        click.echo(f"detected format: {profile.name} (shipped profile)")
     as_of = as_of or datetime.date.today().isoformat()  # noqa: DTZ011
 
     result = convert_workbook(workbook, profile, as_of=as_of)
+    if not result.collections:
+        message = (
+            f"no sheet in the input matched profile {profile.name!r} "
+            f"(sheets: {', '.join(result.unmatched_sheets)})"
+        )
+        sibling = detect_profile(
+            workbook, Path(profile_path).parent, known_transforms=known_transforms()
+        )
+        if sibling is not None and Path(profile_path).resolve() != sibling.resolve():
+            message += (
+                f"; the input's columns match the format of {sibling} — "
+                f"try --profile {sibling}"
+            )
+        raise click.ClickException(message)
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -127,10 +140,11 @@ def convert(
     write_json(
         out / "report.json",
         {
-            "as_of": as_of,
             "issues": [vars(issue) for issue in result.issues],
+            "as_of": as_of,
             "unmatched_sheets": result.unmatched_sheets,
         },
+        sort_keys=False,
     )
     from bepress_importer.conversion_log import build_payload, render_text
 
@@ -140,6 +154,7 @@ def convert(
         as_of=as_of,
         sheet_docs=result.sheet_docs,
         value_changes=result.value_changes,
+        issues=result.issues,
     )
     write_json(out / "conversion-log.json", payload)
     (out / "conversion-log.txt").write_text(render_text(payload), encoding="utf-8")

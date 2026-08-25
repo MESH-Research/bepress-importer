@@ -1,0 +1,886 @@
+# Bucknell Content Inventory export → KC Works mapping profile.
+#
+# A Content Inventory export is a single flattened table: every collection's
+# rows with the union of all columns (~585), arriving either as a cp1252 CSV
+# or as a "Content Inventory" .xlsx workbook (data sheet plus a "Field Names"
+# legend sheet, which `require_columns` keeps out of the conversion). Rows
+# carry a `state` column; only `published` rows are imported. Records are
+# keyed on `context_key`; inventory exports carry no calc_url, so no url
+# identifier is emitted.
+#
+# `signature_columns` marks this as an inventory profile: `convert` refuses
+# to run it against an export that lacks these columns, and suggests it when
+# a non-matching profile is passed for an inventory workbook.
+#
+# The `publication` column holds each row's collection slug, so the
+# collection-specific mappings agreed for the Bucknell collection export
+# (profiles/bucknell.toml, per bucknell_mapping.odt — see
+# profiles/bucknell_remapping.MD) are reproduced here as selected groups:
+# rows are routed to the first [[sheet]] block whose `select` matches their
+# publication, and everything else falls to the generic catch-all group at
+# the end (collection "inventory").
+#
+# Differences from bucknell.toml forced by the inventory format:
+#   - no calc_url column → no url identifier on any record
+#   - BU Digital Scholarship: fulltext_url does not exist in inventory
+#     exports, so that identifier mapping is dropped
+#   - author columns run to author72 in this export (max = 72 below)
+#
+# Deliberately unmapped columns (documented, not accidental): the export
+# contains dozens of sparsely-used per-collection columns (exhibition,
+# performance, patent, geodata fields, workflow/admin fields such as
+# submission_date, submitted_by, open_access, address/phone fields, etc.).
+# Run `bepress-importer inspect --profile` for the full unmapped list on a
+# given export.
+
+[profile]
+name = "inventory-bucknell"
+schema_version = 1
+signature_columns = ["context_key", "state", "document_type"]
+
+[defaults]
+record_id.column = "context_key"
+files_enabled = false
+season_style = "edtf-season"
+
+[defaults.author_columns]
+prefix = "author"
+max = 72
+
+# ---------------------------------------------------------------- journals
+[[sheet]]
+match = "*"
+collection = "fac_journ"
+require_columns = ["context_key", "state", "document_type"]
+select = { column = "publication", values = ["fac_journ"] }
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { article = "textDocument-journalArticle", journalarticle = "textDocument-journalArticle", book_contribution = "textDocument-bookSection", popular_press = "textDocument-magazineArticle", bookreview = "textDocument-review", editorial = "textDocument-editorial", other = "textDocument-other" }
+  default = "textDocument-journalArticle"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "pub_link"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "url" }
+  append = true
+
+  [[sheet.field]]
+  source = "doi"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "doi", normalize = "doi" }
+  append = true
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "custom_citation"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "pub_statement"
+  target = "/metadata/copyright"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "embargo_date"
+  target = "/access"
+  transform = "embargo"
+
+  [sheet.journal]
+  title = "src_journal"
+  volume = "volnum"
+  issue = "issnum"
+  pages = { first = "fpage", last = "lpage" }
+
+# ---------------------------------------------------------------- theses
+[[sheet]]
+match = "*"
+collection = "masters_theses"
+require_columns = ["context_key", "state", "document_type"]
+select = { column = "publication", values = ["masters_theses"] }
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { masters_thesis = "textDocument-thesis", masters_thesis_b = "textDocument-thesis" }
+  default = "textDocument-thesis"
+
+  [sheet.contributors]
+  prefix = "advisor"
+  max = 3
+  role = "committeeMember"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", ", also_columns = ["concentration"] }
+
+  [[sheet.field]]
+  source = "degree_name"
+  target = "/custom_fields/thesis:thesis/type"
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/thesis:thesis/department"
+
+  [[sheet.field]]
+  source = "department2"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "author1_institution"
+  target = "/custom_fields/thesis:thesis/university"
+  transform = "author_institution"
+  args = { prefix = "author", max = 5, default = "Bucknell University" }
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+
+  [[sheet.field]]
+  source = "embargo_date"
+  target = "/access"
+  transform = "embargo"
+
+[[sheet]]
+match = "*"
+collection = "honors_theses"
+require_columns = ["context_key", "state", "document_type"]
+select = { column = "publication", values = ["honors_theses"] }
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { honors_thesis = "textDocument-thesis", honors_thesis_b = "textDocument-thesis" }
+  default = "textDocument-thesis"
+
+  [sheet.contributors]
+  prefix = "advisor"
+  max = 3
+  role = "committeeMember"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", ", also_columns = ["concentration"] }
+
+  [[sheet.field]]
+  source = "degree_name"
+  target = "/custom_fields/thesis:thesis/type"
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/thesis:thesis/department"
+
+  [[sheet.field]]
+  source = "department2"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "author1_institution"
+  target = "/custom_fields/thesis:thesis/university"
+  transform = "author_institution"
+  args = { prefix = "author", max = 5, default = "Bucknell University" }
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+
+  [[sheet.field]]
+  source = "embargo_date"
+  target = "/access"
+  transform = "embargo"
+
+# ---------------------------------------------------------------- books
+[[sheet]]
+match = "*"
+collection = "books"
+require_columns = ["context_key", "state", "document_type"]
+select = { column = "publication", values = ["books"] }
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  constant = "textDocument-book"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "publisher"
+  target = "/metadata/publisher"
+
+  [[sheet.field]]
+  source = "identifier"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "isbn" }
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "buy_link"
+  target = "/metadata/related_identifiers"
+  transform = "related_identifier"
+  args = { scheme = "url", relation = "isdescribedby" }
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+
+  [sheet.imprint]
+  place = "city"
+
+[[sheet]]
+match = "*"
+collection = "bucknell-press"
+require_columns = ["context_key", "state", "document_type"]
+select = { column = "publication", values = ["bucknell-press"] }
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  constant = "textDocument-book"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+  append = true
+
+  [[sheet.field]]
+  source = "bu_type"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "prefixed_tag"
+  args = { prefix = "bu_type" }
+  append = true
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "language"
+  target = "/metadata/languages"
+  transform = "language_list"
+
+  [[sheet.field]]
+  source = "isbn"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "isbn", split = ";" }
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+  append = true
+
+  [[sheet.field]]
+  source = "rights"
+  target = "/metadata/rights"
+  transform = "constant_if_present"
+  args = { value = [{ id = "arr" }] }
+  append = true
+
+  [[sheet.field]]
+  source = "rights"
+  target = "/metadata/copyright"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "buy_link"
+  target = "/metadata/related_identifiers"
+  transform = "related_identifier"
+  args = { scheme = "url", relation = "isdescribedby" }
+
+  [sheet.constants]
+  "/metadata/publisher" = "Bucknell University Press"
+
+# ------------------------------------------------- digital scholarship
+[[sheet]]
+match = "*"
+collection = "bucknell_digital_scholarship"
+require_columns = ["context_key", "state", "document_type"]
+select = { column = "publication", values = ["bucknell_digital_scholarship"] }
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = {}
+  default = "other-interactiveResource"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "language"
+  target = "/metadata/languages"
+  transform = "language_list"
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "custom_citation"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "copyright_note"
+  target = "/metadata/copyright"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+# ------------------------------------------------------------- DSSRF
+[[sheet]]
+match = "*"
+collection = "dssrf"
+require_columns = ["context_key", "state", "document_type"]
+select = { column = "publication", values = ["dssrf"] }
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { digital_project = "other-interactiveResource" }
+  default = "other-interactiveResource"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "custom_citation"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+  append = true
+
+  [[sheet.field]]
+  source = "multimedia_url"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "url" }
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "rights"
+  target = "/metadata/copyright"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+
+# ---------------------------------------------------------------- podcasts
+[[sheet]]
+match = "*"
+collection = "bucknell-occupied"
+require_columns = ["context_key", "state", "document_type"]
+select = { column = "publication", values = ["bucknell-occupied"] }
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  column = "document_type"
+  map = { interview = "audiovisual-podcastEpisode" }
+  default = "audiovisual-podcastEpisode"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season" }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "language"
+  target = "/metadata/languages"
+  transform = "language_list"
+
+  [[sheet.field]]
+  source = "comments"
+  target = "/metadata/additional_descriptions"
+  transform = "additional_description"
+
+  [[sheet.field]]
+  source = "multimedia_url"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "url" }
+
+  [[sheet.field]]
+  source = "multimedia_format"
+  target = "/custom_fields/kcr:media"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "duration"
+  target = "/metadata/sizes"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "rights"
+  target = "/metadata/copyright"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+
+# ------------------------------------------------------- everything else
+# Rows from collections without client-specific instructions: the generic
+# inventory baseline (events, symposia, working papers, OER, archives...).
+[[sheet]]
+match = "*"
+collection = "inventory"
+require_columns = ["context_key", "state", "document_type"]
+
+  [sheet.filter]
+  column = "state"
+  keep = ["published"]
+
+  [sheet.resource_type]
+  column = "document_type"
+  default = "textDocument-other"
+
+  [sheet.resource_type.map]
+  article = "textDocument-journalArticle"
+  journalarticle = "textDocument-journalArticle"
+  book_contribution = "textDocument-bookSection"
+  popular_press = "textDocument-magazineArticle"
+  book = "textDocument-book"
+  bookreview = "textDocument-review"
+  honors_thesis = "textDocument-thesis"
+  honors_thesis_b = "textDocument-thesis"
+  masters_thesis = "textDocument-thesis"
+  masters_thesis_b = "textDocument-thesis"
+  essay = "textDocument-essay"
+  whitepaper = "textDocument-whitePaper"
+  report = "textDocument-report"
+  technicalreports = "textDocument-report"
+  editorial = "textDocument-editorial"
+  unpublished_paper = "textDocument-workingPaper"
+  presentation = "presentation-other"
+  poster = "presentation-conferencePoster"
+  conference_paper = "presentation-conferencePaper"
+  keynote = "presentation-other"
+  keynote_presentation = "presentation-other"
+  keynotepresentation = "presentation-other"
+  interview = "audiovisual-interviewRecording"
+  film = "audiovisual-videoRecording"
+  accessfilm = "audiovisual-videoRecording"
+  openaccessfilm = "audiovisual-videoRecording"
+  bucknellaccessonlyfilm = "audiovisual-videoRecording"
+  video = "audiovisual-videoRecording"
+  audiomaterials = "audiovisual-audioRecording"
+  performance = "audiovisual-performance"
+  digital_project = "other-interactiveResource"
+  dataset = "dataset"
+  datasets = "dataset"
+  Software = "software-other"
+  Hardware = "other-physicalObject"
+  exhibition = "other-event"
+  conference = "other-event"
+  workshop = "other-event"
+  panel = "other-event"
+  panel_discussion = "other-event"
+  paneldiscussion = "other-event"
+  demonstration = "other-event"
+  breakout = "other-event"
+  tour = "other-event"
+  other = "textDocument-other"
+  abstracts = "textDocument-abstract"
+  installation = "image-visualArt"
+  informationalworks = "textDocument-documentation"
+  webbasedmaterials = "other-interactiveResource"
+  # journal front matter, event programs and other minor print genres
+  fullissue = "textDocument-other"
+  full_issue = "textDocument-other"
+  acknowledgements = "textDocument-other"
+  contributors = "textDocument-other"
+  introductions = "textDocument-other"
+  newsletters = "textDocument-other"
+  printmaterials = "textDocument-other"
+  program = "textDocument-other"
+  "Program (Publication)" = "textDocument-other"
+  response = "textDocument-other"
+  letter = "textDocument-other"
+
+  [[sheet.field]]
+  source = "title"
+  target = "/metadata/title"
+  required = true
+
+  # events (conferences, exhibitions...) carry no publication_date; their
+  # start_date is the closest equivalent
+  [[sheet.field]]
+  source = "publication_date"
+  target = "/metadata/publication_date"
+  transform = "edtf_date"
+  args = { season_column = "season", fallback_columns = ["start_date"] }
+  required = true
+
+  [[sheet.field]]
+  source = "abstract"
+  target = "/metadata/description"
+  transform = "strip_html"
+
+  [[sheet.field]]
+  source = "keywords"
+  target = "/custom_fields/kcr:user_defined_tags"
+  transform = "split"
+  args = { sep = "," }
+
+  [[sheet.field]]
+  source = "disciplines"
+  target = "/custom_fields/kcr:discipline"
+  transform = "split"
+  args = { sep = ";", join = ", " }
+
+  [[sheet.field]]
+  source = "department"
+  target = "/custom_fields/kcr:institution_department"
+
+  [[sheet.field]]
+  source = "degree_name"
+  target = "/custom_fields/kcr:degree"
+
+  [[sheet.field]]
+  source = "publisher"
+  target = "/metadata/publisher"
+
+  [[sheet.field]]
+  source = "doi"
+  target = "/metadata/identifiers"
+  append = true
+  transform = "identifier"
+  args = { scheme = "doi", normalize = "doi" }
+
+  [[sheet.field]]
+  source = "isbn"
+  target = "/metadata/identifiers"
+  append = true
+  transform = "identifier"
+  args = { scheme = "isbn", split = ";" }
+
+  [[sheet.field]]
+  source = "language"
+  target = "/metadata/languages"
+  transform = "language_list"
+
+  [[sheet.field]]
+  source = "distribution_license"
+  target = "/metadata/rights"
+  transform = "license_url"
+
+  [[sheet.field]]
+  source = "pub_link"
+  target = "/custom_fields/kcr:publication_url"
+  transform = "url"
+
+  [[sheet.field]]
+  source = "embargo_date"
+  target = "/access"
+  transform = "embargo"
+
+  [sheet.contributors]
+  prefix = "advisor"
+  max = 3
+  role = "committeeMember"
+
+  [sheet.journal]
+  title = "src_journal"
+  volume = "volnum"
+  issue = "issnum"
+  issn = "issn"
+  pages = { first = "fpage", last = "lpage" }
+
+  [sheet.imprint]
+  place = "city"

@@ -77,6 +77,19 @@ class RowFilter:
 
 
 @dataclass(frozen=True)
+class RowSelect:
+    """Route rows to this sheet block when `column`'s value is in `values`.
+
+    Lets one flat table (e.g. a site-wide Content Inventory) carry several
+    mapping groups: rows go to the first block whose select matches; a block
+    without a select is the catch-all.
+    """
+
+    column: str
+    values: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Defaults:
     record_id_column: str = "context_key"
     url_column: str | None = None
@@ -97,6 +110,7 @@ class SheetProfile:
     collection: str | None = None
     filter: RowFilter | None = None
     require_columns: tuple[str, ...] = ()
+    select: RowSelect | None = None
 
 
 @dataclass(frozen=True)
@@ -115,31 +129,45 @@ class Profile:
         matches if every required column is present — this keeps legend sheets
         (e.g. an inventory export's "Field Names" list) out of the conversion.
         """
-        for sheet in self.sheets:
-            if not fnmatch.fnmatchcase(sheet_name, sheet.match):
-                continue
-            if columns is not None and not set(sheet.require_columns) <= set(columns):
-                continue
-            return sheet
-        return None
+        matches = self.match_sheets(sheet_name, columns)
+        return matches[0] if matches else None
+
+    def match_sheets(
+        self, sheet_name: str, columns: tuple[str, ...] | None = None
+    ) -> tuple[SheetProfile, ...]:
+        """Every sheet block that fits this sheet, in profile order.
+
+        A table may be routed across several blocks: each row goes to the
+        first block whose `select` matches it; a block without a select is
+        the catch-all.
+        """
+        return tuple(
+            sheet
+            for sheet in self.sheets
+            if fnmatch.fnmatchcase(sheet_name, sheet.match)
+            and (columns is None or set(sheet.require_columns) <= set(columns))
+        )
 
 
-SHIPPED_PROFILE_DIR = Path(__file__).parent
-
-
-def detect_profile(workbook, known_transforms: set[str] | None = None) -> Profile | None:
-    """Return the shipped profile whose format signature matches the workbook, else None.
+def detect_profile(
+    workbook, profile_dir: str | Path, known_transforms: set[str] | None = None
+) -> Path | None:
+    """Return the path of the profile in `profile_dir` whose format signature
+    matches the workbook, else None.
 
     A profile declares its signature as `signature_columns` in its [profile]
     head; the format is recognized when any sheet carries all of them.
     """
-    for path in sorted(SHIPPED_PROFILE_DIR.glob("*.toml")):
-        profile = load_profile(path, known_transforms=known_transforms)
+    for path in sorted(Path(profile_dir).glob("*.toml")):
+        try:
+            profile = load_profile(path, known_transforms=known_transforms)
+        except ProfileError:
+            continue
         if not profile.signature_columns:
             continue
         signature = set(profile.signature_columns)
         if any(signature <= set(table.columns) for table in workbook.tables):
-            return profile
+            return path
     return None
 
 
@@ -274,6 +302,13 @@ def _parse_sheet(
             raise ProfileError(f"{where}: filter needs 'column' and a 'keep' list")
         row_filter = RowFilter(column=f_raw["column"], keep=tuple(f_raw["keep"]))
 
+    select = None
+    if "select" in raw:
+        s_raw = raw["select"]
+        if not s_raw.get("column") or not s_raw.get("values"):
+            raise ProfileError(f"{where}: select needs 'column' and a 'values' list")
+        select = RowSelect(column=s_raw["column"], values=tuple(s_raw["values"]))
+
     constants = dict(raw.get("constants", {}))
     for pointer in constants:
         if not pointer.startswith("/"):
@@ -292,4 +327,5 @@ def _parse_sheet(
         collection=raw.get("collection"),
         filter=row_filter,
         require_columns=tuple(raw.get("require_columns", [])),
+        select=select,
     )

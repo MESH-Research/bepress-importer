@@ -145,3 +145,44 @@ class TestConversionLogFiles:
         out2 = self.run_convert(tmp_path / "b")
         for name in ("conversion-log.json", "conversion-log.txt"):
             assert (out1 / name).read_bytes() == (out2 / name).read_bytes()
+
+
+class TestIssuesInTheLog:
+    def payload_with_issue(self):
+        from bepress_importer.conversion_log import build_payload
+        from bepress_importer.convert import Issue
+
+        result = convert_golden()
+        return build_payload(
+            input_name="journal.csv",
+            profile_name="golden",
+            as_of=AS_OF,
+            sheet_docs=result.sheet_docs,
+            value_changes=result.value_changes,
+            issues=[Issue(sheet="journal", record_id="900", message="required field 'title' is missing")],
+        )
+
+    def test_payload_carries_the_issues(self):
+        payload = self.payload_with_issue()
+        assert payload["issues"] == [
+            {"sheet": "journal", "record_id": "900",
+             "message": "required field 'title' is missing"}
+        ]
+
+    def test_issues_render_before_the_sheet_documentation(self):
+        from bepress_importer.conversion_log import render_text
+
+        text = render_text(self.payload_with_issue())
+        assert text.index("required field 'title' is missing") < text.index("=== Sheet")
+
+    def test_a_clean_conversion_renders_without_an_issue_list(self):
+        from bepress_importer.conversion_log import build_payload, render_text
+
+        result = convert_golden()
+        payload = build_payload(
+            input_name="journal.csv", profile_name="golden", as_of=AS_OF,
+            sheet_docs=result.sheet_docs, value_changes=result.value_changes,
+            issues=[],
+        )
+        assert payload["issues"] == []
+        assert "required field" not in render_text(payload)

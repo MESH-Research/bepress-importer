@@ -38,9 +38,13 @@ uv run bepress-importer inspect "Data/Export.xls" --profile profiles/bucknell.to
 uv run bepress-importer convert "Data/Export.xls" \
     --profile profiles/bucknell.toml -o converted --as-of 2026-07-28
 
-# 2b. Content Inventory exports are detected from their columns — no --profile
-#     needed (the shipped inventory profile is used automatically)
-uv run bepress-importer convert "Data/Inventory.xlsx" -o converted --as-of 2026-07-28
+# 2b. Content Inventory exports need an inventory profile. The converter
+#     checks the profile against the export's columns and refuses a mismatch
+#     (pointing at the sibling profile that does match), so passing a
+#     collection profile for an inventory export fails loudly instead of
+#     silently converting nothing.
+uv run bepress-importer convert "Data/Inventory.xlsx" \
+    --profile profiles/inventory-bucknell.toml -o converted --as-of 2026-07-28
 
 # 3. Validate against KC Works vocabularies and field rules (read-only)
 uv run bepress-importer check converted --as-of 2026-07-28
@@ -76,7 +80,10 @@ the created KC Works record URL (or its per-field errors on failure).
 
 `convert` writes a client-inspectable provenance log next to its output, in
 two forms: `conversion-log.json` (precise) and `conversion-log.txt` (human
-readable). It records, per sheet, every mapping rule applied — which column
+readable). Conversion issues (missing required fields, unmapped document
+types, unrouted rows) appear **at the top** of the log — and first in
+`report.json` — so problems are visible before the mapping documentation.
+The log then records, per sheet, every mapping rule applied — which column
 went to which KC Works field, how, and why — including the columns
 deliberately **not** imported; and then, per record, every value that left
 the spreadsheet in a different form than it arrived (dates normalized to
@@ -113,15 +120,36 @@ means a new profile, not new code.
 uv run bepress-importer inspect "Data/NewClient.xls" --scaffold > profiles/newclient.toml
 ```
 
-Two profiles ship with the tool: `profiles/bucknell.toml` (multi-sheet
-collection export) and the packaged
-`src/bepress_importer/profiles/inventory.toml` (site-wide inventory report:
-one flattened table of every collection keyed on `context_key`, arriving
-either as a cp1252 CSV or as a "Content Inventory" .xlsx workbook whose
-"Field Names" legend sheet is skipped). The inventory profile declares
-`signature_columns`, so `convert` run without `--profile` detects the format
-from the columns and uses it automatically. Inventory exports include
-unpublished material, so that profile uses a row filter —
+Two Bucknell profiles live in `profiles/`: `bucknell.toml` (multi-sheet
+collection export) and `inventory-bucknell.toml` (site-wide Content
+Inventory report: one flattened table of every collection keyed on
+`context_key`, arriving either as a cp1252 CSV or as a "Content Inventory"
+.xlsx workbook whose "Field Names" legend sheet is skipped).
+
+An inventory export mixes every collection in one table, so
+`inventory-bucknell.toml` routes rows to per-collection mapping groups with
+a `select` declared on each `[[sheet]]` block — pure profile data, nothing
+hardcoded:
+
+```toml
+[[sheet]]
+match = "*"
+collection = "masters_theses"
+select = { column = "publication", values = ["masters_theses"] }
+```
+
+Rows go to the first block whose select matches; a block without a select is
+the catch-all. This is how the collection-specific mappings agreed for the
+Bucknell collection export (thesis fields, journal groups, press constants,
+podcasts…) apply equally to inventory rows, with output split into the same
+per-collection files.
+
+An inventory profile also declares `signature_columns`
+(`context_key`/`state`/`document_type`); `convert` refuses to run a profile
+whose signature the export doesn't carry, and when a profile matches no
+sheet at all it fails with a hint at the sibling profile whose signature does
+match. Inventory exports include unpublished material, so every group uses a
+row filter —
 
 ```toml
 [sheet.filter]
