@@ -23,6 +23,7 @@ build/
 
 # Pipeline outputs (generated, per-engagement)
 converted/
+inventory/
 wrangled/
 wrangling.json
 wrangling.log
