@@ -168,6 +168,43 @@ def convert(
     )
 
 
+@cli.command()
+@click.argument("input_file", type=click.Path(exists=True, dir_okay=False))
+@click.option("--profile", "profile_path", required=True,
+              type=click.Path(exists=True, dir_okay=False),
+              help="Mapping profile (collection or inventory).")
+@click.option("--record", "record_id", required=True,
+              help="The record id (e.g. context_key) of the row to dump.")
+@click.option("--as-of", default=None,
+              help="ISO date for embargo-activity decisions (default: today).")
+@click.option("--plain", is_flag=True,
+              help="Machine-readable output: no pretty-printing, no color.")
+def show(input_file: str, profile_path: str, record_id: str, as_of: str | None,
+         plain: bool) -> None:
+    """Dump one record's converted metadata straight from an export.
+
+    Converts the row on the fly — it need not appear in any conversion
+    output — and prints its KC Works JSON to stdout, with required-but-empty
+    fields marked "MISSING" (highlighted red unless --plain).
+    """
+    from bepress_importer.show import annotate_missing, explain_record, render
+
+    workbook = read_workbook(input_file)
+    profile = _load_profile_or_fail(profile_path)
+    as_of = as_of or datetime.date.today().isoformat()  # noqa: DTZ011
+    view = explain_record(workbook, profile, record_id, as_of=as_of)
+    if view is None:
+        raise click.ClickException(
+            f"no row with {profile.defaults.record_id_column} = {record_id!r} "
+            "in any profile-matched sheet"
+        )
+    if view.excluded:
+        click.echo(f"note: {view.excluded}", err=True)
+    if view.record is None:
+        raise click.ClickException(f"row cannot be converted: {view.excluded}")
+    click.echo(render(annotate_missing(view.record, view.missing), plain=plain))
+
+
 def _current_state(data_dir, log_path):
     """Load collections and replay the log (if given) so we work on current values."""
     from bepress_importer.wrangle.changelog import ChangeLog

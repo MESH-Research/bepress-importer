@@ -46,6 +46,15 @@ uv run bepress-importer convert "Data/Export.xls" \
 uv run bepress-importer convert "Data/Inventory.xlsx" \
     --profile profiles/inventory-bucknell.toml -o converted --as-of 2026-07-28
 
+# 2c. Inspect one record straight from the export — e.g. an id from the
+#     issues at the top of report.json / conversion-log.txt. Prints the
+#     record's KC Works JSON with required-but-empty fields marked "MISSING"
+#     (highlighted red in a terminal); --plain emits one line of unstyled
+#     JSON for piping. Works even for rows the conversion excludes
+#     (withdrawn/pending), with the reason on stderr.
+uv run bepress-importer show "Data/Inventory.xlsx" \
+    --profile profiles/inventory-bucknell.toml --record 5523024
+
 # 3. Validate against KC Works vocabularies and field rules (read-only)
 uv run bepress-importer check converted --as-of 2026-07-28
 
