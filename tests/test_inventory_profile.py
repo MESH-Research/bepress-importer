@@ -200,6 +200,20 @@ class TestCatchAllGroup:
         assert rt.map["installation"] == "image-visualArt"
         assert rt.default == "textDocument-other"
 
+    def test_pub_link_is_a_work_level_url_identifier(self, profile):
+        # odt convention: work URLs go to metadata.identifiers; the
+        # kcr:publication_url custom field is reserved for series-level URLs
+        mapping = next(
+            f for f in block(profile, "inventory").fields if f.source == "pub_link"
+        )
+        assert mapping.target == "/metadata/identifiers"
+        assert mapping.args.get("scheme") == "url"
+
+    def test_no_group_maps_the_publication_url_custom_field(self, profile):
+        for sheet in profile.sheets:
+            targets = {f.target for f in sheet.fields}
+            assert "/custom_fields/kcr:publication_url" not in targets, sheet.collection
+
 
 def test_every_mapped_resource_type_exists_in_the_vocabulary(profile):
     vocab_path = (

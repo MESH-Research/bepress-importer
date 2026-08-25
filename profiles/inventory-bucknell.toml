@@ -860,10 +860,14 @@ require_columns = ["context_key", "state", "document_type"]
   target = "/metadata/rights"
   transform = "license_url"
 
+  # odt convention: work-level URLs are identifiers; kcr:publication_url is
+  # reserved for series-level URLs (none identified in this export)
   [[sheet.field]]
   source = "pub_link"
-  target = "/custom_fields/kcr:publication_url"
-  transform = "url"
+  target = "/metadata/identifiers"
+  append = true
+  transform = "identifier"
+  args = { scheme = "url" }
 
   [[sheet.field]]
   source = "embargo_date"
