@@ -1,3 +1,15 @@
+## 1.3.0 (2026-09-21)
+
+### Feat
+
+- **cli**: show command dumps one record straight from an export
+- **profiles**: Bucknell-specific Content Inventory profile with row-routed collection mappings
+- **convert**: auto-detect and import Content Inventory exports
+
+### Fix
+
+- **profiles**: route inventory pub_link to work-level url identifiers
+
 ## 1.2.1 (2026-08-06)
 
 ### Fix
