@@ -438,41 +438,89 @@ def vocab_sync_cmd(api_url, dest_dir) -> None:
 @click.option("--receipts", "receipts_path", type=click.Path(dir_okay=False), default=None,
               help="Where to write per-record receipts (default: <metadata>.receipts.json).")
 @click.option("--dry-run", is_flag=True, help="Validate and describe the request; POST nothing.")
+@click.option("--debug", "debug_mode", is_flag=True,
+              help="Narrate every step to stderr: the full request (token redacted), "
+                   "all submitted JSON, the full server response, and a curl replay "
+                   "command. Redirect with 2>debug.log for a shareable transcript.")
 @click.option("--notify-record-owners", is_flag=True)
 @click.option("--review-required/--no-review-required", "review_required", default=None)
 @click.option("--strict-validation/--no-strict-validation", "strict_validation", default=None)
 def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, receipts_path,
-           dry_run, notify_record_owners, review_required, strict_validation) -> None:
+           dry_run, debug_mode, notify_record_owners, review_required,
+           strict_validation) -> None:
     """Upload a finished collection JSON file to KC Works.
 
-    POSTs the records to /api/import/<collection-id> and writes per-record
-    receipts mapping each import-recid to its created record URL.
+    POSTs the records to /api/import/<collection-id> (the streamlined
+    Import API) and writes per-record receipts mapping each import-recid
+    to its created record URL.
     """
     import json as json_module
     import os
 
+    from bepress_importer.debug import DebugReporter
     from bepress_importer.upload import (
         API_KEY_ENV,
         API_URL_ENV,
         DEFAULT_API_URL,
+        build_form,
         upload_collection,
     )
 
+    reporter = DebugReporter(lambda line: click.echo(line, err=True)) if debug_mode else None
+    if reporter:
+        reporter.say("Debug mode on: full transcript follows (API docs: "
+                     "https://mesh-research.github.io/kcworks-import-client/import_api.html)")
+        reporter.say(f"Reading metadata records from {metadata_file}")
     records = json_module.loads(Path(metadata_file).read_text(encoding="utf-8"))
     if not isinstance(records, list):
         raise click.ClickException(
             f"{metadata_file} must contain a JSON array of records "
             "(the Import API requires an array even for one record)"
         )
+    if api_url:
+        url_source = "--api-url"
+    elif os.environ.get(API_URL_ENV):
+        url_source = f"${API_URL_ENV}"
+    else:
+        url_source = "built-in default"
     api_url = api_url or os.environ.get(API_URL_ENV) or DEFAULT_API_URL
     target = f"{api_url.rstrip('/')}/api/import/{collection_id}"
+    if reporter:
+        recids = [
+            identifier.get("identifier")
+            for record in records
+            for identifier in record.get("metadata", {}).get("identifiers", [])
+            if identifier.get("scheme") == "import-recid"
+        ]
+        reporter.say(f"Loaded {len(records)} record(s); import-recids: "
+                     f"{', '.join(recids) if recids else '(none found)'}")
+        reporter.say(f"Target instance {api_url} (from {url_source}); "
+                     f"import endpoint {target}")
 
     if dry_run:
+        if reporter:
+            reporter.say("Dry run: showing the exact request that would be sent; "
+                         "no token needed and nothing will be POSTed")
+            form = build_form(
+                records,
+                notify_record_owners=notify_record_owners,
+                review_required=review_required,
+                strict_validation=strict_validation,
+            )
+            headers = {
+                "Accept": "application/json",
+                "Authorization": "Bearer $KCWORKS_IMPORT_API_KEY",
+            }
+            reporter.show_request("POST", target, headers, form)
+            reporter.show_curl(target, form, metadata_file=metadata_file)
         click.echo(f"dry run: would POST {len(records)} record(s) to {target}")
         return
 
     if api_key_file:
         api_key = Path(api_key_file).read_text(encoding="utf-8").strip()
+        if reporter:
+            reporter.say(f"Bearer token read from file {api_key_file} "
+                         f"({len(api_key)} chars; value never shown)")
     else:
         env_name = api_key_env or API_KEY_ENV
         api_key = os.environ.get(env_name, "").strip()
@@ -481,7 +529,21 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
                 f"No API key: set the {env_name} environment variable "
                 "or pass --api-key-file"
             )
+        if reporter:
+            reporter.say(f"Bearer token read from ${env_name} "
+                         f"({len(api_key)} chars; value never shown)")
 
+    if reporter:
+        reporter.show_curl(
+            target,
+            build_form(
+                records,
+                notify_record_owners=notify_record_owners,
+                review_required=review_required,
+                strict_validation=strict_validation,
+            ),
+            metadata_file=metadata_file,
+        )
     result = upload_collection(
         records,
         collection_id,
@@ -490,11 +552,21 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
         notify_record_owners=notify_record_owners,
         review_required=review_required,
         strict_validation=strict_validation,
+        debug=reporter,
     )
     receipts_path = Path(
         receipts_path or Path(metadata_file).with_suffix(".receipts.json")
     )
     write_json(receipts_path, result.receipts)
+    if reporter:
+        if result.success:
+            reporter.say("Import reported success (HTTP 201); every record should now "
+                         "have a record_url in the receipts file")
+        else:
+            reporter.say(f"Import FAILED (HTTP {result.status_code}); the response body "
+                         "above and the per-record errors in the receipts file are what "
+                         "the KCWorks maintainer will need")
+        reporter.say(f"Writing per-record receipts to {receipts_path}")
     click.echo(f"HTTP {result.status_code}: {result.message}")
     click.echo(f"receipts → {receipts_path}")
     if not result.success:

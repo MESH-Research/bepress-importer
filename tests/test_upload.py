@@ -6,7 +6,8 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from bepress_importer.cli import cli
-from bepress_importer.upload import upload_collection
+from bepress_importer.debug import DebugReporter
+from bepress_importer.upload import PostResponse, upload_collection
 
 RECORDS = [
     {
@@ -57,7 +58,12 @@ class CapturingPoster:
 
     def __call__(self, url, headers, data):
         self.calls.append({"url": url, "headers": headers, "data": data})
-        return self.status, self.payload
+        return PostResponse(
+            status_code=self.status,
+            payload=self.payload,
+            headers={"Content-Type": "application/json"},
+            text=json.dumps(self.payload),
+        )
 
 
 class TestUploadCollection:
@@ -104,6 +110,31 @@ class TestUploadCollection:
         upload_collection(RECORDS, "c", api_key="k", api_url="https://staging.example.org/",
                           post=poster)
         assert poster.calls[0]["url"] == "https://staging.example.org/api/import/c"
+
+    def test_debug_narrates_full_exchange_without_leaking_token(self):
+        lines = []
+        upload_collection(
+            RECORDS, "coll-1", api_key="sekrit", post=CapturingPoster(),
+            debug=DebugReporter(lines.append),
+        )
+        text = "\n".join(lines)
+        assert "https://works.hcommons.org/api/import/coll-1" in text
+        assert "POST" in text
+        assert '"title": "A"' in text  # the submitted metadata JSON, pretty-printed
+        assert "201" in text
+        assert '"status": "success"' in text  # the response body
+        assert "sekrit" not in text
+
+    def test_debug_shows_error_response_body(self):
+        lines = []
+        upload_collection(
+            RECORDS, "c", api_key="k",
+            post=CapturingPoster(status=400, payload=ERROR_RESPONSE),
+            debug=DebugReporter(lines.append),
+        )
+        text = "\n".join(lines)
+        assert "400" in text
+        assert "Required field missing." in text
 
 
 class TestUploadCommand:
@@ -168,6 +199,37 @@ class TestUploadCommand:
         assert result.exit_code == 0, result.output
         assert poster.calls[0]["headers"]["Authorization"] == "Bearer filekey"
 
+    def test_debug_streams_transcript_to_stderr(self, tmp_path, monkeypatch):
+        poster = CapturingPoster()
+        result = self.run(
+            tmp_path, "--debug", env={"KCWORKS_IMPORT_API_KEY": "sekrit"},
+            poster=poster, monkeypatch=monkeypatch,
+        )
+        assert result.exit_code == 0, result.output
+        transcript = result.stderr
+        assert "POST" in transcript
+        assert "api/import/coll-1" in transcript
+        assert '"title": "A"' in transcript  # the JSON we submitted
+        assert '"status": "success"' in transcript  # the server's response
+        assert "201" in transcript
+        assert "sekrit" not in transcript and "sekrit" not in result.output
+        # stdout still carries the normal summary
+        assert "receipts" in result.output
+
+    def test_debug_dry_run_dumps_request_and_posts_nothing(self, tmp_path, monkeypatch):
+        poster = CapturingPoster()
+        result = self.run(
+            tmp_path, "--debug", "--dry-run", env={"KCWORKS_IMPORT_API_KEY": ""},
+            poster=poster, monkeypatch=monkeypatch,
+        )
+        assert result.exit_code == 0, result.output
+        assert poster.calls == []
+        transcript = result.stderr
+        assert '"title": "A"' in transcript
+        assert "api/import/coll-1" in transcript
+        assert "curl" in transcript
+        assert "$KCWORKS_IMPORT_API_KEY" in transcript
+
     def test_non_array_metadata_errors(self, tmp_path):
         metadata = tmp_path / "bad.json"
         metadata.write_text(json.dumps({"not": "a list"}))
@@ -176,6 +238,61 @@ class TestUploadCommand:
             env={"KCWORKS_IMPORT_API_KEY": "k"},
         )
         assert result.exit_code != 0
+
+
+class TestHttpPost:
+    """The real poster must speak multipart/form-data, as the Import API requires."""
+
+    class FakeHttpResponse:
+        def __init__(self):
+            self.status_code = 201
+            self.headers = {"Content-Type": "application/json"}
+            self.text = json.dumps(SUCCESS_RESPONSE)
+
+        def json(self):
+            return SUCCESS_RESPONSE
+
+    def test_posts_multipart_and_returns_full_response(self, monkeypatch):
+        from bepress_importer.upload import _http_post
+
+        seen = {}
+
+        def fake_post(url, headers=None, files=None, timeout=None, **kwargs):
+            seen.update(url=url, headers=headers, files=files, kwargs=kwargs)
+            return TestHttpPost.FakeHttpResponse()
+
+        monkeypatch.setattr("requests.post", fake_post)
+        response = _http_post(
+            "https://x.example/api/import/c",
+            {"Accept": "application/json", "Authorization": "Bearer k"},
+            {"metadata": json.dumps(RECORDS), "notify_record_owners": "false"},
+        )
+        # every form field travels as a multipart part, metadata typed as JSON
+        assert seen["files"]["metadata"] == (None, json.dumps(RECORDS), "application/json")
+        assert seen["files"]["notify_record_owners"] == (None, "false")
+        assert "data" not in seen["kwargs"] or not seen["kwargs"]["data"]
+        assert response.status_code == 201
+        assert response.payload == SUCCESS_RESPONSE
+        assert response.headers["Content-Type"] == "application/json"
+        assert response.text == json.dumps(SUCCESS_RESPONSE)
+
+    def test_non_json_body_preserved(self, monkeypatch):
+        class HtmlResponse:
+            def __init__(self):
+                self.status_code = 504
+                self.headers = {"Content-Type": "text/html"}
+                self.text = "<html>Gateway Timeout</html>"
+
+            def json(self):
+                raise ValueError("not json")
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: HtmlResponse())
+        from bepress_importer.upload import _http_post
+
+        response = _http_post("https://x.example/api/import/c", {}, {"metadata": "[]"})
+        assert response.status_code == 504
+        assert response.text == "<html>Gateway Timeout</html>"
+        assert "Gateway Timeout" in response.payload.get("message", "")
 
 
 def test_receipts_path_defaults_next_to_metadata(tmp_path, monkeypatch):
