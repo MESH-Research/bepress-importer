@@ -1,3 +1,13 @@
+## 1.4.0 (2026-11-20)
+
+### Feat
+
+- **upload**: exhaustive --debug transcript for Import API uploads
+
+### Fix
+
+- **gitignore**: add new entries to gitignore
+
 ## 1.3.0 (2026-09-21)
 
 ### Feat
