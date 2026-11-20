@@ -35,3 +35,7 @@ receipts.json
 # IDE and editor artifacts
 .idea/
 .~lock.*#
+
+.env
+
+staging-debug.log
