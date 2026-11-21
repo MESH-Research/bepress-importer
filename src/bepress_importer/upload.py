@@ -44,6 +44,7 @@ def upload_collection(
     notify_record_owners: bool = False,
     review_required: bool | None = None,
     strict_validation: bool | None = None,
+    all_or_none: bool = True,
     post: Poster | None = None,
     debug=None,
 ) -> UploadResult:
@@ -60,6 +61,7 @@ def upload_collection(
         notify_record_owners=notify_record_owners,
         review_required=review_required,
         strict_validation=strict_validation,
+        all_or_none=all_or_none,
     )
 
     if debug:
@@ -74,15 +76,7 @@ def upload_collection(
         debug.show_response(response)
 
     payload = response.payload
-    receipts: dict[str, dict] = {}
-    for item in list(payload.get("data", [])) + list(payload.get("errors", [])):
-        source_id = item.get("source_id")
-        if source_id:
-            receipts[source_id] = {
-                "record_id": item.get("record_id"),
-                "record_url": item.get("record_url"),
-                "errors": item.get("errors", []),
-            }
+    receipts = build_receipts(payload.get("data", []), payload.get("errors", []))
     if debug:
         debug.say(f"Parsed {len(receipts)} per-record receipt(s) from the response's "
                   "data/errors arrays")
@@ -94,16 +88,33 @@ def upload_collection(
     )
 
 
+def build_receipts(data: list[dict], errors: list[dict]) -> dict[str, dict]:
+    """Per-record receipts keyed by import-recid, from a response's data/errors arrays."""
+    receipts: dict[str, dict] = {}
+    for item in list(data) + list(errors):
+        source_id = item.get("source_id")
+        if source_id:
+            receipts[source_id] = {
+                "record_id": item.get("record_id"),
+                "record_url": item.get("record_url"),
+                "errors": item.get("errors", []),
+            }
+    return receipts
+
+
 def build_form(
     records: list[dict],
     notify_record_owners: bool = False,
     review_required: bool | None = None,
     strict_validation: bool | None = None,
+    all_or_none: bool = True,
 ) -> dict[str, str]:
     """The multipart form fields the Import API expects, metadata as a JSON array."""
     data: dict[str, str] = {
         "metadata": json.dumps(records, ensure_ascii=False),
         "notify_record_owners": str(notify_record_owners).lower(),
+        # The server defaults to false (partial imports), so always say so.
+        "all_or_none": str(all_or_none).lower(),
     }
     if review_required is not None:
         data["review_required"] = str(review_required).lower()

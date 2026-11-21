@@ -90,6 +90,16 @@ class TestUploadCollection:
         assert poster2.calls[0]["data"]["review_required"] == "false"
         assert poster2.calls[0]["data"]["strict_validation"] == "false"
 
+    def test_all_or_none_sent_as_true_by_default(self):
+        poster = CapturingPoster()
+        upload_collection(RECORDS, "c", api_key="k", post=poster)
+        assert poster.calls[0]["data"]["all_or_none"] == "true"
+
+    def test_all_or_none_can_be_turned_off(self):
+        poster = CapturingPoster()
+        upload_collection(RECORDS, "c", api_key="k", all_or_none=False, post=poster)
+        assert poster.calls[0]["data"]["all_or_none"] == "false"
+
     def test_success_receipts_keyed_by_import_recid(self):
         result = upload_collection(RECORDS, "c", api_key="k", post=CapturingPoster())
         assert result.success is True

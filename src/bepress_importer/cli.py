@@ -363,7 +363,7 @@ def apply(data_dir, log_path, output_dir) -> None:
 @click.option("--record", "record_id", default=None)
 @click.option("--field", "field_pointer", default=None)
 def history(log_path, record_id, field_pointer) -> None:
-    """Show the change history, optionally filtered by record or field."""
+    """Show the change history, optionally for one record or field."""
     from bepress_importer.wrangle.changelog import ChangeLog, summarize
 
     log = ChangeLog.load(log_path)
@@ -425,48 +425,46 @@ def vocab_sync_cmd(api_url, dest_dir) -> None:
         click.echo(f"{name}: {count} ids")
 
 
-@cli.command()
-@click.argument("metadata_file", type=click.Path(exists=True, dir_okay=False))
-@click.option("--collection-id", required=True)
-@click.option("--api-url", default=None,
-              help="Base URL (default: $KCWORKS_IMPORT_API_URL or https://works.hcommons.org).")
-@click.option("--api-key-env", default=None,
-              help="Environment variable holding the bearer token "
-                   "(default: KCWORKS_IMPORT_API_KEY).")
-@click.option("--api-key-file", type=click.Path(exists=True, dir_okay=False), default=None,
-              help="Read the bearer token from this file instead.")
-@click.option("--receipts", "receipts_path", type=click.Path(dir_okay=False), default=None,
-              help="Where to write per-record receipts (default: <metadata>.receipts.json).")
-@click.option("--dry-run", is_flag=True, help="Validate and describe the request; POST nothing.")
-@click.option("--debug", "debug_mode", is_flag=True,
-              help="Narrate every step to stderr: the full request (token redacted), "
-                   "all submitted JSON, the full server response, and a curl replay "
-                   "command. Redirect with 2>debug.log for a shareable transcript.")
-@click.option("--notify-record-owners", is_flag=True)
-@click.option("--review-required/--no-review-required", "review_required", default=None)
-@click.option("--strict-validation/--no-strict-validation", "strict_validation", default=None)
-def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, receipts_path,
-           dry_run, debug_mode, notify_record_owners, review_required,
-           strict_validation) -> None:
-    """Upload a finished collection JSON file to KC Works.
+_UPLOAD_OPTIONS = [
+    click.argument("metadata_file", type=click.Path(exists=True, dir_okay=False)),
+    click.option("--collection-id", required=True),
+    click.option("--api-url", default=None,
+                 help="Base URL (default: $KCWORKS_IMPORT_API_URL or "
+                      "https://works.hcommons.org)."),
+    click.option("--api-key-env", default=None,
+                 help="Environment variable holding the bearer token "
+                      "(default: KCWORKS_IMPORT_API_KEY)."),
+    click.option("--api-key-file", type=click.Path(exists=True, dir_okay=False), default=None,
+                 help="Read the bearer token from this file instead."),
+    click.option("--receipts", "receipts_path", type=click.Path(dir_okay=False), default=None,
+                 help="Where to write per-record receipts "
+                      "(default: <metadata>.receipts.json)."),
+    click.option("--dry-run", is_flag=True,
+                 help="Validate and describe the request; POST nothing."),
+    click.option("--debug", "debug_mode", is_flag=True,
+                 help="Narrate every step to stderr: the full request (token redacted), "
+                      "all submitted JSON, the full server response, and a curl replay "
+                      "command. Redirect with 2>debug.log for a shareable transcript."),
+    click.option("--notify-record-owners", is_flag=True),
+]
 
-    POSTs the records to /api/import/<collection-id> (the streamlined
-    Import API) and writes per-record receipts mapping each import-recid
-    to its created record URL.
-    """
-    import json as json_module
-    import os
 
+def _upload_options(command):
+    """The arguments and options `upload` and `upload-client` have in common."""
+    for decorator in reversed(_UPLOAD_OPTIONS):
+        command = decorator(command)
+    return command
+
+
+def _debug_reporter(debug_mode: bool):
     from bepress_importer.debug import DebugReporter
-    from bepress_importer.upload import (
-        API_KEY_ENV,
-        API_URL_ENV,
-        DEFAULT_API_URL,
-        build_form,
-        upload_collection,
-    )
 
-    reporter = DebugReporter(lambda line: click.echo(line, err=True)) if debug_mode else None
+    return DebugReporter(lambda line: click.echo(line, err=True)) if debug_mode else None
+
+
+def _load_upload_records(metadata_file: str, reporter) -> list[dict]:
+    import json as json_module
+
     if reporter:
         reporter.say("Debug mode on: full transcript follows (API docs: "
                      "https://mesh-research.github.io/kcworks-import-client/import_api.html)")
@@ -477,6 +475,16 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
             f"{metadata_file} must contain a JSON array of records "
             "(the Import API requires an array even for one record)"
         )
+    return records
+
+
+def _resolve_upload_target(api_url, collection_id: str, records: list[dict],
+                           reporter) -> tuple[str, str]:
+    """The instance base URL and the import endpoint for this collection."""
+    import os
+
+    from bepress_importer.upload import API_URL_ENV, DEFAULT_API_URL
+
     if api_url:
         url_source = "--api-url"
     elif os.environ.get(API_URL_ENV):
@@ -496,64 +504,35 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
                      f"{', '.join(recids) if recids else '(none found)'}")
         reporter.say(f"Target instance {api_url} (from {url_source}); "
                      f"import endpoint {target}")
+    return api_url, target
 
-    if dry_run:
-        if reporter:
-            reporter.say("Dry run: showing the exact request that would be sent; "
-                         "no token needed and nothing will be POSTed")
-            form = build_form(
-                records,
-                notify_record_owners=notify_record_owners,
-                review_required=review_required,
-                strict_validation=strict_validation,
-            )
-            headers = {
-                "Accept": "application/json",
-                "Authorization": "Bearer $KCWORKS_IMPORT_API_KEY",
-            }
-            reporter.show_request("POST", target, headers, form)
-            reporter.show_curl(target, form, metadata_file=metadata_file)
-        click.echo(f"dry run: would POST {len(records)} record(s) to {target}")
-        return
+
+def _read_api_key(api_key_env, api_key_file, reporter) -> str:
+    import os
+
+    from bepress_importer.upload import API_KEY_ENV
 
     if api_key_file:
         api_key = Path(api_key_file).read_text(encoding="utf-8").strip()
         if reporter:
             reporter.say(f"Bearer token read from file {api_key_file} "
                          f"({len(api_key)} chars; value never shown)")
-    else:
-        env_name = api_key_env or API_KEY_ENV
-        api_key = os.environ.get(env_name, "").strip()
-        if not api_key:
-            raise click.ClickException(
-                f"No API key: set the {env_name} environment variable "
-                "or pass --api-key-file"
-            )
-        if reporter:
-            reporter.say(f"Bearer token read from ${env_name} "
-                         f"({len(api_key)} chars; value never shown)")
-
-    if reporter:
-        reporter.show_curl(
-            target,
-            build_form(
-                records,
-                notify_record_owners=notify_record_owners,
-                review_required=review_required,
-                strict_validation=strict_validation,
-            ),
-            metadata_file=metadata_file,
+        return api_key
+    env_name = api_key_env or API_KEY_ENV
+    api_key = os.environ.get(env_name, "").strip()
+    if not api_key:
+        raise click.ClickException(
+            f"No API key: set the {env_name} environment variable "
+            "or pass --api-key-file"
         )
-    result = upload_collection(
-        records,
-        collection_id,
-        api_key=api_key,
-        api_url=api_url,
-        notify_record_owners=notify_record_owners,
-        review_required=review_required,
-        strict_validation=strict_validation,
-        debug=reporter,
-    )
+    if reporter:
+        reporter.say(f"Bearer token read from ${env_name} "
+                     f"({len(api_key)} chars; value never shown)")
+    return api_key
+
+
+def _finish_upload(result, metadata_file: str, receipts_path, reporter) -> None:
+    """Write receipts, print the summary, and exit non-zero on failure."""
     receipts_path = Path(
         receipts_path or Path(metadata_file).with_suffix(".receipts.json")
     )
@@ -571,3 +550,101 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
     click.echo(f"receipts → {receipts_path}")
     if not result.success:
         raise SystemExit(1)
+
+
+@cli.command()
+@_upload_options
+@click.option("--review-required/--no-review-required", "review_required", default=None)
+@click.option("--strict-validation/--no-strict-validation", "strict_validation", default=None)
+def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, receipts_path,
+           dry_run, debug_mode, notify_record_owners, review_required,
+           strict_validation) -> None:
+    """Upload a finished collection JSON file to KC Works.
+
+    POSTs the records to /api/import/<collection-id> (the streamlined
+    Import API) and writes per-record receipts mapping each import-recid
+    to its created record URL.
+    """
+    from bepress_importer.upload import build_form, upload_collection
+
+    reporter = _debug_reporter(debug_mode)
+    records = _load_upload_records(metadata_file, reporter)
+    api_url, target = _resolve_upload_target(api_url, collection_id, records, reporter)
+    form = build_form(
+        records,
+        notify_record_owners=notify_record_owners,
+        review_required=review_required,
+        strict_validation=strict_validation,
+    )
+
+    if dry_run:
+        if reporter:
+            reporter.say("Dry run: showing the exact request that would be sent; "
+                         "no token needed and nothing will be POSTed")
+            headers = {
+                "Accept": "application/json",
+                "Authorization": "Bearer $KCWORKS_IMPORT_API_KEY",
+            }
+            reporter.show_request("POST", target, headers, form)
+            reporter.show_curl(target, form, metadata_file=metadata_file)
+        click.echo(f"dry run: would POST {len(records)} record(s) to {target}")
+        return
+
+    api_key = _read_api_key(api_key_env, api_key_file, reporter)
+    if reporter:
+        reporter.show_curl(target, form, metadata_file=metadata_file)
+    result = upload_collection(
+        records,
+        collection_id,
+        api_key=api_key,
+        api_url=api_url,
+        notify_record_owners=notify_record_owners,
+        review_required=review_required,
+        strict_validation=strict_validation,
+        debug=reporter,
+    )
+    _finish_upload(result, metadata_file, receipts_path, reporter)
+
+
+@cli.command("upload-client")
+@_upload_options
+def upload_client_command(metadata_file, collection_id, api_url, api_key_env, api_key_file,
+                          receipts_path, dry_run, debug_mode, notify_record_owners) -> None:
+    """Upload a collection JSON file via kcworks-import-client.
+
+    Same route and receipts as `upload`, but the request is built and sent
+    by MESH's client library rather than by this tool. The library cannot
+    send review_required or strict_validation, so the server defaults apply.
+    """
+    from kcworks_import_client import ImportRequestError
+
+    from bepress_importer.upload_client import upload_collection_via_client
+
+    reporter = _debug_reporter(debug_mode)
+    records = _load_upload_records(metadata_file, reporter)
+    api_url, target = _resolve_upload_target(api_url, collection_id, records, reporter)
+
+    if dry_run:
+        if reporter:
+            reporter.say("Dry run: no token needed and nothing will be POSTed. The client "
+                         "library builds the request at send time; it would be given "
+                         f"all_or_none=true and notify_record_owners="
+                         f"{str(notify_record_owners).lower()}")
+        click.echo(f"dry run: would POST {len(records)} record(s) to {target} "
+                   "via kcworks-import-client")
+        return
+
+    api_key = _read_api_key(api_key_env, api_key_file, reporter)
+    try:
+        result = upload_collection_via_client(
+            records,
+            collection_id,
+            api_key=api_key,
+            api_url=api_url,
+            notify_record_owners=notify_record_owners,
+            debug=reporter,
+            metadata_file=metadata_file,
+        )
+    except ImportRequestError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _finish_upload(result, metadata_file, receipts_path, reporter)

@@ -10,6 +10,7 @@ dependencies = [
     "openpyxl>=3.1",
     "rich>=13",
     "requests>=2.31",
+    "kcworks-import-client",
 ]
 
 [project.scripts]
@@ -44,3 +45,6 @@ src = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+kcworks-import-client = { git = "https://github.com/MESH-Research/kcworks-import-client", rev = "e6ceaa1441db28bea15819a69bc55df7c7163ee4" }

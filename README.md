@@ -85,6 +85,19 @@ uv run bepress-importer upload wrangled/fac_journ.json --collection-id <id>
 `upload` writes `<file>.receipts.json` mapping each record's `import-recid` to
 the created KC Works record URL (or its per-field errors on failure).
 
+`upload-client` is a drop-in alternative that sends the same file through
+MESH's [`kcworks-import-client`](https://github.com/MESH-Research/kcworks-import-client)
+library instead of this tool's own request code:
+
+```sh
+uv run bepress-importer upload-client wrangled/fac_journ.json --collection-id <id>
+```
+
+It takes the same options as `upload` except `--review-required` and
+`--strict-validation`, which the library cannot send (the server defaults,
+both true, apply). The library also always sends `id_scheme=import-recid`
+and `no_updates=false`, which `upload` leaves to the server.
+
 ## The conversion log
 
 `convert` writes a client-inspectable provenance log next to its output, in
@@ -205,6 +218,7 @@ uv run ruff check
   profile's `[defaults]`.
 - The `thesis:university` custom field and `kcr:discipline` cardinality should
   be confirmed against the live instance before a production import.
-- The Import API's `all_or_none` is always true server-side: drive `check`
-  findings to zero before uploading; per-collection files keep the blast
+- Uploads always send `all_or_none=true` explicitly rather than relying on
+  the Import API's default, so one bad record rejects the whole file: drive
+  `check` findings to zero before uploading; per-collection files keep the blast
   radius contained.
