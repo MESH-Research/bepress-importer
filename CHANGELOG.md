@@ -1,3 +1,10 @@
+## 1.5.0 (2026-11-21)
+
+### Feat
+
+- **upload-client**: make printout of curl to issue byte-identical import file
+- **uploadclient**: add new upload optui to use kc works upload client
+
 ## 1.4.0 (2026-11-20)
 
 ### Feat
