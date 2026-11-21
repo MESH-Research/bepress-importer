@@ -240,6 +240,27 @@ class TestUploadCommand:
         assert "curl" in transcript
         assert "$KCWORKS_IMPORT_API_KEY" in transcript
 
+    def test_debug_replay_payload_is_byte_identical_to_what_was_sent(
+        self, tmp_path, monkeypatch
+    ):
+        poster = CapturingPoster()
+        result = self.run(
+            tmp_path, "--debug", env={"KCWORKS_IMPORT_API_KEY": "k"},
+            poster=poster, monkeypatch=monkeypatch,
+        )
+        assert result.exit_code == 0, result.output
+        payload = tmp_path / "coll.payload.json"
+        assert payload.read_bytes() == poster.calls[0]["data"]["metadata"].encode("utf-8")
+        assert f"metadata=<{payload};" in result.stderr
+
+    def test_no_replay_payload_without_debug(self, tmp_path, monkeypatch):
+        poster = CapturingPoster()
+        self.run(
+            tmp_path, env={"KCWORKS_IMPORT_API_KEY": "k"},
+            poster=poster, monkeypatch=monkeypatch,
+        )
+        assert not (tmp_path / "coll.payload.json").exists()
+
     def test_non_array_metadata_errors(self, tmp_path):
         metadata = tmp_path / "bad.json"
         metadata.write_text(json.dumps({"not": "a list"}))

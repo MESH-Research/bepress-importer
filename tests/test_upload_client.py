@@ -276,6 +276,22 @@ class TestUploadClientCommand:
         assert "sekrit" not in transcript and "sekrit" not in result.output
         assert "receipts" in result.output
 
+    def test_debug_replay_payload_is_byte_identical_to_what_was_sent(
+        self, tmp_path, monkeypatch
+    ):
+        result = self.run(
+            tmp_path, monkeypatch, "--debug", env={"KCWORKS_IMPORT_API_KEY": "k"}
+        )
+        assert result.exit_code == 0, result.output
+        payload = tmp_path / "coll.payload.json"
+        sent = form_fields(self.transport.requests[0])["metadata"]
+        assert payload.read_bytes() == sent.encode("utf-8")
+        assert f"metadata=<{payload};" in result.stderr
+
+    def test_no_replay_payload_without_debug(self, tmp_path, monkeypatch):
+        self.run(tmp_path, monkeypatch, env={"KCWORKS_IMPORT_API_KEY": "k"})
+        assert not (tmp_path / "coll.payload.json").exists()
+
     def test_debug_dry_run_posts_nothing(self, tmp_path, monkeypatch):
         result = self.run(
             tmp_path, monkeypatch, "--debug", "--dry-run",

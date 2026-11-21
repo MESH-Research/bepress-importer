@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 
 
 def redact_headers(headers: dict) -> dict:
@@ -66,6 +67,21 @@ class DebugReporter:
             self.emit(f"  {name}: {value}")
         self.emit("response body:")
         self.emit(_indent(_pretty_json(response.text)))
+
+    def show_replay(self, url: str, form: dict, metadata_file: str) -> None:
+        """Save the exact metadata bytes sent, and print a curl command that replays them.
+
+        curl sends a file verbatim, and the source file is formatted differently
+        from what we transmit (so it is a different size), so the replay reads a
+        byte-identical copy written next to it as `<name>.payload.json`.
+        """
+        payload = form.get("metadata", "").encode("utf-8")
+        payload_file = Path(metadata_file).with_suffix(".payload.json")
+        payload_file.write_bytes(payload)
+        self.say(f"Wrote the metadata exactly as transmitted ({len(payload)} bytes) to "
+                 f"{payload_file}; {metadata_file} is formatted differently, so replaying "
+                 "it directly would send a different request")
+        self.show_curl(url, form, metadata_file=str(payload_file))
 
     def show_curl(self, url: str, form: dict, metadata_file: str = "metadata.json") -> None:
         """Print an equivalent curl command for replaying the request by hand."""

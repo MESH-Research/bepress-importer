@@ -62,14 +62,15 @@ def upload_collection_via_client(
     all_or_none: bool = True,
     session: requests.Session | None = None,
     debug=None,
-    metadata_file: str = "metadata.json",
+    metadata_file: str | None = None,
 ) -> UploadResult:
     """POST one collection's records via kcworks-import-client.
 
     Returns the same result shape as `upload.upload_collection`. Raises the
     library's ImportRequestError when no response was received. With a
-    DebugReporter in `debug`, dumps the request the library sent, a curl
-    replay of it (naming `metadata_file`), and the server's response.
+    DebugReporter in `debug`, dumps the request the library sent and the
+    server's response; given `metadata_file` too, it also saves a curl replay
+    payload next to that file.
     """
     session = session or make_session()
     # base_url is always passed, so the library never applies its own reading
@@ -97,10 +98,11 @@ def upload_collection_via_client(
             dict(response.request.headers),
             getattr(session, "last_form", {}),
         )
-        debug.show_curl(
-            response.request.url, getattr(session, "last_form", {}),
-            metadata_file=metadata_file,
-        )
+        if metadata_file:
+            debug.show_replay(
+                response.request.url, getattr(session, "last_form", {}),
+                metadata_file=metadata_file,
+            )
         debug.say("Server replied; full response follows:")
         debug.show_response(response)
 

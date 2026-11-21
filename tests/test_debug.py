@@ -96,3 +96,31 @@ class TestDebugReporter:
         assert "https://x.example/api/import/c" in text
         assert "$KCWORKS_IMPORT_API_KEY" in text
         assert "sekrit123" not in text
+
+    def test_show_replay_saves_the_exact_metadata_sent(self, tmp_path):
+        source = tmp_path / "coll.json"
+        source.write_text(json.dumps([{"title": "Caf\u00e9"}], indent=2))
+        sent = json.dumps([{"title": "Caf\u00e9"}], ensure_ascii=False)
+        lines = []
+        DebugReporter(lines.append).show_replay(
+            "https://x.example/api/import/c",
+            {"metadata": sent, "all_or_none": "true"},
+            metadata_file=str(source),
+        )
+        payload = tmp_path / "coll.payload.json"
+        assert payload.read_bytes() == sent.encode("utf-8")
+        assert source.read_text() != sent  # the source file itself is left alone
+
+    def test_show_replay_curl_reads_the_saved_payload_not_the_source(self, tmp_path):
+        source = tmp_path / "coll.json"
+        source.write_text("[]")
+        lines = []
+        DebugReporter(lines.append).show_replay(
+            "https://x.example/api/import/c",
+            {"metadata": "[]", "all_or_none": "true"},
+            metadata_file=str(source),
+        )
+        curl = next(line for line in lines if line.startswith("curl"))
+        assert f"metadata=<{tmp_path / 'coll.payload.json'};" in curl
+        assert f"metadata=<{source};" not in curl
+        assert "-F 'all_or_none=true'" in curl

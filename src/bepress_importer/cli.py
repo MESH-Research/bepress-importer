@@ -586,13 +586,13 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
                 "Authorization": "Bearer $KCWORKS_IMPORT_API_KEY",
             }
             reporter.show_request("POST", target, headers, form)
-            reporter.show_curl(target, form, metadata_file=metadata_file)
+            reporter.show_replay(target, form, metadata_file=metadata_file)
         click.echo(f"dry run: would POST {len(records)} record(s) to {target}")
         return
 
     api_key = _read_api_key(api_key_env, api_key_file, reporter)
     if reporter:
-        reporter.show_curl(target, form, metadata_file=metadata_file)
+        reporter.show_replay(target, form, metadata_file=metadata_file)
     result = upload_collection(
         records,
         collection_id,
