@@ -98,6 +98,43 @@ It takes the same options as `upload` except `--review-required` and
 both true, apply). The library also always sends `id_scheme=import-recid`
 and `no_updates=false`, which `upload` leaves to the server.
 
+## Clearing a test import (hard delete)
+
+`hard-delete` permanently removes every record in a collection, through KC
+Works' REST
+[hard-delete API](https://mesh-research.github.io/knowledge-commons-works/admin_guide/record_hard_delete.html).
+It is meant for emptying a collection on dev or staging between test imports.
+Hard-deleted records cannot be restored.
+
+```sh
+export KCWORKS_HARD_DELETE_API_KEY=...   # not the import key; see below
+export KCWORKS_IMPORT_API_URL=https://works.hcommons-staging.org
+
+uv run bepress-importer hard-delete <collection-slug> --yes-i-want-to-run-this
+```
+
+- **Confirmation.** Without `--yes-i-want-to-run-this` the command refuses and
+  contacts nothing.
+- **Production.** When the instance is `works.hcommons.org` (which is also the
+  default when neither `--api-url` nor `$KCWORKS_IMPORT_API_URL` is set), it
+  refuses unless `--yes-i-want-to-run-this-on-production` is given as well.
+- **Its own key.** The token is read from `KCWORKS_HARD_DELETE_API_KEY` (or
+  `--api-key-env` / `--api-key-file`); the import key is never used. Create a
+  separate token carrying the `records:delete` scope, owned by an account with
+  the administration role, and keep one per instance.
+- **Sub-collections.** By default only records that sit in the collection
+  itself are deleted; a record that also belongs to one of its sub-collections
+  is skipped and logged. `--cascade` deletes the records of every
+  sub-collection too, at any depth. The collections themselves are never
+  removed.
+- **Log.** Each record is written to stdout as `DELETED`, `FAILED` (with the
+  server's reason) or `SKIPPED`, followed by a summary line; the exit status is
+  non-zero if any record failed. Redirect stdout to keep the log.
+
+A record that is also filed in an unrelated collection is deleted from there
+too, since it is the record itself that is removed. Records are sent
+`--batch-size` at a time (default 25, server maximum 100).
+
 ## The conversion log
 
 `convert` writes a client-inspectable provenance log next to its output, in

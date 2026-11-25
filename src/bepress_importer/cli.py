@@ -511,7 +511,7 @@ def _resolve_upload_target(api_url, collection_id: str, records: list[dict],
     return api_url, target
 
 
-def _read_api_key(api_key_env, api_key_file, reporter) -> str:
+def _read_api_key(api_key_env, api_key_file, reporter, default_env=None) -> str:
     import os
 
     from bepress_importer.upload import API_KEY_ENV
@@ -522,7 +522,7 @@ def _read_api_key(api_key_env, api_key_file, reporter) -> str:
             reporter.say(f"Bearer token read from file {api_key_file} "
                          f"({len(api_key)} chars; value never shown)")
         return api_key
-    env_name = api_key_env or API_KEY_ENV
+    env_name = api_key_env or default_env or API_KEY_ENV
     api_key = os.environ.get(env_name, "").strip()
     if not api_key:
         raise click.ClickException(
@@ -656,3 +656,70 @@ def upload_client_command(metadata_file, collection_id, api_url, api_key_env, ap
     except ImportRequestError as exc:
         raise click.ClickException(str(exc)) from exc
     _finish_upload(result, metadata_file, receipts_path, reporter)
+
+
+@cli.command("hard-delete")
+@click.argument("collection_slug")
+@click.option("--yes-i-want-to-run-this", "confirmed", is_flag=True,
+              help="Required. Without it nothing is contacted and nothing is deleted.")
+@click.option("--yes-i-want-to-run-this-on-production", "production_confirmed", is_flag=True,
+              help="Also required when the target is works.hcommons.org.")
+@click.option("--cascade/--no-cascade", default=False, show_default=True,
+              help="Also delete the records of every sub-collection, at any depth.")
+@click.option("--api-url", default=None,
+              help="Base URL (default: $KCWORKS_IMPORT_API_URL or "
+                   "https://works.hcommons.org).")
+@click.option("--api-key-env", default=None,
+              help="Environment variable holding the hard-delete bearer token "
+                   "(default: KCWORKS_HARD_DELETE_API_KEY).")
+@click.option("--api-key-file", type=click.Path(exists=True, dir_okay=False), default=None,
+              help="Read the hard-delete bearer token from this file instead.")
+@click.option("--note", default=None,
+              help="Ops note for the server's audit log (default: names the collection).")
+@click.option("--batch-size", type=click.IntRange(1, 100), default=25, show_default=True,
+              help="Records per hard-delete request (the server accepts at most 100).")
+def hard_delete_command(collection_slug, confirmed, production_confirmed, cascade, api_url,
+                        api_key_env, api_key_file, note, batch_size) -> None:
+    """Permanently delete every record in a KC Works collection.
+
+    Meant for clearing test imports on dev and staging. Uses the REST
+    hard-delete API with its own key, and logs each record to stdout.
+    """
+    import os
+
+    from bepress_importer.hard_delete import (
+        HARD_DELETE_KEY_ENV,
+        HardDeleteError,
+        hard_delete_collection,
+        is_production,
+    )
+    from bepress_importer.upload import API_URL_ENV, DEFAULT_API_URL
+
+    api_url = api_url or os.environ.get(API_URL_ENV) or DEFAULT_API_URL
+    target = f"every record in collection {collection_slug!r} on {api_url}"
+    if not confirmed:
+        raise click.ClickException(
+            f"This would permanently delete {target}. Pass --yes-i-want-to-run-this "
+            "to go ahead. Nothing was contacted or deleted."
+        )
+    if is_production(api_url) and not production_confirmed:
+        raise click.ClickException(
+            f"{api_url} is the PRODUCTION instance. To permanently delete {target}, "
+            "also pass --yes-i-want-to-run-this-on-production; for dev or staging, "
+            f"set --api-url or ${API_URL_ENV}. Nothing was contacted or deleted."
+        )
+    api_key = _read_api_key(api_key_env, api_key_file, None, default_env=HARD_DELETE_KEY_ENV)
+    try:
+        result = hard_delete_collection(
+            collection_slug,
+            api_key=api_key,
+            api_url=api_url,
+            cascade=cascade,
+            note=note,
+            batch_size=batch_size,
+            log=click.echo,
+        )
+    except HardDeleteError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not result.success:
+        raise SystemExit(1)
