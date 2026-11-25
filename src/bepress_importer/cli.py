@@ -446,6 +446,10 @@ _UPLOAD_OPTIONS = [
                       "all submitted JSON, the full server response, and a curl replay "
                       "command. Redirect with 2>debug.log for a shareable transcript."),
     click.option("--notify-record-owners", is_flag=True),
+    click.option("--all-or-none/--no-all-or-none", "all_or_none", default=True,
+                 show_default=True,
+                 help="Reject the whole file if any record fails; with "
+                      "--no-all-or-none the records that pass are still imported."),
 ]
 
 
@@ -557,7 +561,7 @@ def _finish_upload(result, metadata_file: str, receipts_path, reporter) -> None:
 @click.option("--review-required/--no-review-required", "review_required", default=None)
 @click.option("--strict-validation/--no-strict-validation", "strict_validation", default=None)
 def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, receipts_path,
-           dry_run, debug_mode, notify_record_owners, review_required,
+           dry_run, debug_mode, notify_record_owners, all_or_none, review_required,
            strict_validation) -> None:
     """Upload a finished collection JSON file to KC Works.
 
@@ -575,6 +579,7 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
         notify_record_owners=notify_record_owners,
         review_required=review_required,
         strict_validation=strict_validation,
+        all_or_none=all_or_none,
     )
 
     if dry_run:
@@ -601,6 +606,7 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
         notify_record_owners=notify_record_owners,
         review_required=review_required,
         strict_validation=strict_validation,
+        all_or_none=all_or_none,
         debug=reporter,
     )
     _finish_upload(result, metadata_file, receipts_path, reporter)
@@ -609,7 +615,8 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
 @cli.command("upload-client")
 @_upload_options
 def upload_client_command(metadata_file, collection_id, api_url, api_key_env, api_key_file,
-                          receipts_path, dry_run, debug_mode, notify_record_owners) -> None:
+                          receipts_path, dry_run, debug_mode, notify_record_owners,
+                          all_or_none) -> None:
     """Upload a collection JSON file via kcworks-import-client.
 
     Same route and receipts as `upload`, but the request is built and sent
@@ -628,7 +635,7 @@ def upload_client_command(metadata_file, collection_id, api_url, api_key_env, ap
         if reporter:
             reporter.say("Dry run: no token needed and nothing will be POSTed. The client "
                          "library builds the request at send time; it would be given "
-                         f"all_or_none=true and notify_record_owners="
+                         f"all_or_none={str(all_or_none).lower()} and notify_record_owners="
                          f"{str(notify_record_owners).lower()}")
         click.echo(f"dry run: would POST {len(records)} record(s) to {target} "
                    "via kcworks-import-client")
@@ -642,6 +649,7 @@ def upload_client_command(metadata_file, collection_id, api_url, api_key_env, ap
             api_key=api_key,
             api_url=api_url,
             notify_record_owners=notify_record_owners,
+            all_or_none=all_or_none,
             debug=reporter,
             metadata_file=metadata_file,
         )

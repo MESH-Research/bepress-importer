@@ -261,6 +261,40 @@ class TestUploadClientCommand:
         assert result.exit_code == 0, result.output
         assert form_fields(self.transport.requests[0])["notify_record_owners"] == "true"
 
+    def test_all_or_none_is_on_unless_turned_off(self, tmp_path, monkeypatch):
+        result = self.run(tmp_path, monkeypatch, env={"KCWORKS_IMPORT_API_KEY": "k"})
+        assert result.exit_code == 0, result.output
+        assert form_fields(self.transport.requests[0])["all_or_none"] == "true"
+
+    def test_all_or_none_flag_keeps_it_on(self, tmp_path, monkeypatch):
+        result = self.run(
+            tmp_path, monkeypatch, "--all-or-none", env={"KCWORKS_IMPORT_API_KEY": "k"}
+        )
+        assert result.exit_code == 0, result.output
+        assert form_fields(self.transport.requests[0])["all_or_none"] == "true"
+
+    def test_no_all_or_none_flag_reaches_the_request(self, tmp_path, monkeypatch):
+        result = self.run(
+            tmp_path, monkeypatch, "--no-all-or-none", env={"KCWORKS_IMPORT_API_KEY": "k"}
+        )
+        assert result.exit_code == 0, result.output
+        assert form_fields(self.transport.requests[0])["all_or_none"] == "false"
+
+    def test_debug_dry_run_reports_the_all_or_none_it_would_send(self, tmp_path, monkeypatch):
+        on = self.run(
+            tmp_path, monkeypatch, "--debug", "--dry-run",
+            env={"KCWORKS_IMPORT_API_KEY": ""},
+        )
+        assert on.exit_code == 0, on.output
+        assert "all_or_none=true" in on.stderr
+        off = self.run(
+            tmp_path, monkeypatch, "--debug", "--dry-run", "--no-all-or-none",
+            env={"KCWORKS_IMPORT_API_KEY": ""},
+        )
+        assert off.exit_code == 0, off.output
+        assert "all_or_none=false" in off.stderr
+        assert self.transport.requests == []
+
     def test_debug_streams_transcript_to_stderr(self, tmp_path, monkeypatch):
         result = self.run(
             tmp_path, monkeypatch, "--debug", env={"KCWORKS_IMPORT_API_KEY": "sekrit"}

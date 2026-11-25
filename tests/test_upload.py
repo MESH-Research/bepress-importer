@@ -209,6 +209,54 @@ class TestUploadCommand:
         assert result.exit_code == 0, result.output
         assert poster.calls[0]["headers"]["Authorization"] == "Bearer filekey"
 
+    def test_all_or_none_is_on_unless_turned_off(self, tmp_path, monkeypatch):
+        poster = CapturingPoster()
+        result = self.run(
+            tmp_path, env={"KCWORKS_IMPORT_API_KEY": "k"},
+            poster=poster, monkeypatch=monkeypatch,
+        )
+        assert result.exit_code == 0, result.output
+        assert poster.calls[0]["data"]["all_or_none"] == "true"
+
+    def test_all_or_none_flag_keeps_it_on(self, tmp_path, monkeypatch):
+        poster = CapturingPoster()
+        result = self.run(
+            tmp_path, "--all-or-none", env={"KCWORKS_IMPORT_API_KEY": "k"},
+            poster=poster, monkeypatch=monkeypatch,
+        )
+        assert result.exit_code == 0, result.output
+        assert poster.calls[0]["data"]["all_or_none"] == "true"
+
+    def test_no_all_or_none_flag_reaches_the_request(self, tmp_path, monkeypatch):
+        poster = CapturingPoster()
+        result = self.run(
+            tmp_path, "--no-all-or-none", env={"KCWORKS_IMPORT_API_KEY": "k"},
+            poster=poster, monkeypatch=monkeypatch,
+        )
+        assert result.exit_code == 0, result.output
+        assert poster.calls[0]["data"]["all_or_none"] == "false"
+
+    def test_debug_replay_carries_the_all_or_none_that_was_sent(self, tmp_path, monkeypatch):
+        poster = CapturingPoster()
+        result = self.run(
+            tmp_path, "--debug", "--no-all-or-none", env={"KCWORKS_IMPORT_API_KEY": "k"},
+            poster=poster, monkeypatch=monkeypatch,
+        )
+        assert result.exit_code == 0, result.output
+        assert "all_or_none=false" in result.stderr
+        assert "all_or_none=true" not in result.stderr
+
+    def test_debug_dry_run_shows_the_all_or_none_it_would_send(self, tmp_path, monkeypatch):
+        poster = CapturingPoster()
+        result = self.run(
+            tmp_path, "--debug", "--dry-run", "--no-all-or-none",
+            env={"KCWORKS_IMPORT_API_KEY": ""}, poster=poster, monkeypatch=monkeypatch,
+        )
+        assert result.exit_code == 0, result.output
+        assert poster.calls == []
+        assert "all_or_none=false" in result.stderr
+        assert "all_or_none=true" not in result.stderr
+
     def test_debug_streams_transcript_to_stderr(self, tmp_path, monkeypatch):
         poster = CapturingPoster()
         result = self.run(

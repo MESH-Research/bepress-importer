@@ -218,7 +218,8 @@ uv run ruff check
   profile's `[defaults]`.
 - The `thesis:university` custom field and `kcr:discipline` cardinality should
   be confirmed against the live instance before a production import.
-- Uploads always send `all_or_none=true` explicitly rather than relying on
+- Uploads send `all_or_none=true` explicitly by default rather than relying on
   the Import API's default, so one bad record rejects the whole file: drive
   `check` findings to zero before uploading; per-collection files keep the blast
-  radius contained.
+  radius contained. Pass `--no-all-or-none` to `upload` or `upload-client` to
+  import the records that pass and get per-record errors for the rest.
