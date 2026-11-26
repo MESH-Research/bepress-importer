@@ -295,42 +295,51 @@ code). `fallback = "…"` names a publisher for rows nothing identifies.
 ```toml
 [defaults.affiliations]
 ror_lookup = true            # look the others up in the ROR API
-min_score = 1.0              # the score ROR's chosen match must reach
 
   [defaults.affiliations.ror_ids]
   "00fc1qt65" = ["Bucknell University", "Bucknell", "Bucknell U"]
 ```
 
 A creator's affiliation is written as `{"id": "<ror id>"}` in place of
-`{"name": "…"}` when the institution is certain:
+`{"name": "…"}` when an organisation can be settled on:
 
 - **ids fixed in the profile** (`ror_ids`) are applied without any lookup, to
   an affiliation that is one of the listed names or has one as a
   comma-separated part (`Biology Department, Bucknell University`);
 - **every other affiliation**, when `ror_lookup` is on, is put to the ROR
   API's [affiliation matcher](https://ror.readme.io/v2/docs/api-affiliation).
-  The id is used only when ROR marks one organisation as its `chosen` match,
-  that match scores at least `min_score`, **and** the text is that
-  organisation's official name (its display name or a label in another
-  language; case, accents, punctuation and a leading "The" aside), alone or
-  followed by the organisation's own city, region or country
-  (`Colorado State University - Fort Collins`). Anything less stays as text.
+  Of the organisations it returns (up to ten), one is taken when **every
+  word of the affiliation text is in its name**, or when the text is its
+  whole name followed by words from its place (city, region, country):
+  `University of Minnesota - Duluth` → University of Minnesota, Duluth;
+  `Colorado State University - Fort Collins` → Colorado State University.
+  A text no result answers to stays as text.
 
-ROR's `chosen` flag alone is not treated as certainty. It also fires on
-aliases and on shared words: `NC State` comes back as North Central State
-College, `IIIT Delhi` as IIT Delhi. The price of the stricter rule is that
-some correct matches are left as text (`Penn State University` is an alias of
-Pennsylvania State University, not its official name). Institutions that
-matter can be confirmed by hand and added to `ror_ids`.
+The details of that rule:
+
+- words are compared without case, accents or punctuation, and `&` is "and";
+- a name is the organisation's display name or a label in another language.
+  Aliases and acronyms do not count, because organisations share them
+  (`NC State` is an alias of North Central State College);
+- ROR's own `chosen` flag and score are not used: its first choice for
+  `University of Minnesota - Duluth` is the Twin Cities university;
+- when several results have all the words, the name with the fewest other
+  words wins (`Miami University` is not the University of Miami);
+- two results that match equally well (ROR has two organisations called
+  `University of Georgia`) are not chosen between: the text stays;
+- a place cannot stand in for part of the name (`NC State` is not
+  Appalachian State University, although NC is where it is).
 
 Each replacement is one line in the conversion log, with the original text
-and the organisation it was matched to.
+and the organisation it was matched to. An institution the rule leaves as
+text can be confirmed by hand and added to `ror_ids`.
 
 Lookups are remembered in a SQLite file (`--ror-cache`, default
-`ror-cache.sqlite3`; table `affiliation_lookup`), including texts that had no
-match, so each text is asked about once and a re-run is offline and
-byte-identical. A lookup that fails (network down, rate limit that does not
-clear) is reported, left as text and tried again on the next run.
+`ror-cache.sqlite3`; table `affiliation_lookup`). The whole answer is kept,
+including answers with no organisation, so each text is asked about once, a
+re-run is offline and byte-identical, and the rule can change without asking
+again. A lookup that fails (network down, rate limit that does not clear) is
+reported, left as text and tried again on the next run.
 `convert --no-ror-lookup` never contacts the API: it uses the profile's ids
 and whatever the cache already holds. Only the affiliation text is sent to
 ROR.

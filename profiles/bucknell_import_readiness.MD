@@ -147,39 +147,40 @@ original text and the organisation matched.
   after a department ("Biology Department, Bucknell University"). The
   Geisinger-Bucknell Autism and Developmental Medicine Institute is a
   different body and is not treated as Bucknell.
-- **Every other affiliation is put to the ROR API** and replaced only when
-  ROR marks one organisation as its chosen match at score 1.0 **and** the
-  text is that organisation's official name, alone or followed by its own
-  city, region or country.
+- **Every other affiliation is put to the ROR API.** Of the organisations
+  it returns, one is taken when every word of the text is in its name, or
+  when the text is its whole name followed by words from its place.
+  Otherwise the text stays. Aliases and acronyms do not count, and ROR's own
+  "chosen" flag is not used.
 
-The second condition was added after reading the first run's results. ROR's
-chosen flag at full score also fires on aliases and shared words:
-
-| Text in the export | ROR's chosen match |
-|---|---|
-| NC State | North Central State College |
-| IIIT Delhi | Indian Institute of Technology Delhi |
-| Shamokin Creek Restoration Alliance | Digital Research Alliance of Canada |
-| Winston-Salem State | Minnesota State Community and Technical College |
-| Rotterdam School of Management | Telfer School of Management |
-| University of California - Berkeley | University of California System |
-| Massachusetts General Hospital and Harvard Medical School | Massachusetts General Hospital |
-
-None of these is used. All 412 accepted matches were read through.
+ROR's chosen flag was tried first and dropped. At full score it returned
+North Central State College for "NC State", the University of California
+System for "University of California - Berkeley" and the Twin Cities
+university for "University of Minnesota - Duluth". The word rule takes
+Berkeley and Duluth from further down ROR's list and leaves "NC State" alone.
 
 | | Affiliations | Distinct texts |
 |---|---:|---:|
 | Bucknell, fixed id | 4,969 | 8 |
-| ROR id from the API | 1,329 | 412 |
-| Left as text: ROR chose something, not certain | | 112 |
-| Left as text: ROR chose nothing | | 178 |
-| Left as text, total | 639 | 290 |
+| ROR id: the text is the organisation's name | 1,280 | 403 |
+| ROR id: every word is in a longer name | 40 | 23 |
+| ROR id: the name followed by its place | 93 | 29 |
+| Left as text: a word no result has | 482 | 210 |
+| Left as text: two results match equally | 20 | 11 |
+| Left as text: ROR returned nothing | 53 | 26 |
 
-The most frequent texts left as text although ROR's choice is right, which
-could be confirmed and added to `ror_ids` in the profile: "University of
-Illinois at Urbana-Champaign" (36), "Penn State University" (29), "SUNY
-University at Buffalo" (10), "SUNY Oswego" (8), "Virginia Polytechnic
-Institute and State University" (6).
+Matches to look at, because the text is shorter than the name it was
+matched to: "Exeter" → Phillips Exeter Academy (the only result ROR
+returned); "Université Paris" → Université Paris 8; "University of
+Tennessee" → University of Tennessee at Knoxville.
+
+The most frequent texts left as text, which could be confirmed and added to
+`ror_ids` in the profile: "University of Illinois at Urbana-Champaign" (36,
+the name in ROR has no "at"), "Penn State University" (29, an alias), "The
+Pennsylvania State University" (28, the name in ROR has no "The"), "SUNY
+University at Buffalo" (10), "University of New Hampshire - Main Campus"
+(10). Texts with two equal results include "York University", "University of
+Georgia", "Northeastern University" and "National Institutes of Health".
 
 Lookups are cached in `ror-cache.sqlite3` (git-ignored), so a re-run makes no
 requests and is byte-identical. The before/after tables below were taken
