@@ -5,6 +5,7 @@ from bepress_importer.builders import (
     build_creators,
     build_imprint,
     build_journal,
+    creator_positions,
     implausible_journal_values,
 )
 from bepress_importer.profiles import (
@@ -275,3 +276,25 @@ class TestNameSuffixes:
     def test_a_genuine_suffix_is_kept(self):
         row = {"author1_fname": "Martin", "author1_lname": "King", "author1_suffix": "Jr."}
         assert build_creators(row, AUTHORS)[0]["person_or_org"]["name"] == "King, Martin, Jr."
+
+
+class TestCreatorPositions:
+    def test_each_creator_is_traced_to_its_author_number(self):
+        row = {
+            "author1_fname": "Ada", "author1_lname": "Lovelace",
+            "author3_fname": "Alan", "author3_lname": "Turing",
+        }
+        assert creator_positions(row, AUTHORS) == [1, 3]
+        assert len(build_creators(row, AUTHORS)) == 2
+
+    def test_a_corporate_author_from_the_json_column_holds_its_position(self):
+        row = {
+            "authors": '[{"FNAME": "J", "LNAME": "L"}, {"CORPORATE_AUTHOR": "QMA"}, '
+                       '{"FNAME": "S", "LNAME": "P"}]',
+            "author1_fname": "J", "author1_lname": "L",
+            "author3_fname": "S", "author3_lname": "P",
+        }
+        assert creator_positions(row, AUTHORS_WITH_JSON) == [1, 2, 3]
+
+    def test_no_authors_no_positions(self):
+        assert creator_positions({}, AUTHORS) == []

@@ -11,12 +11,14 @@ from bepress_importer.builders import (
     build_creators,
     build_imprint,
     build_journal,
+    creator_positions,
     implausible_journal_values,
 )
 from bepress_importer.doi import is_resolver_address
 from bepress_importer.pids import doi_claim, keep_doi_as_link, promote_doi_pid
 from bepress_importer.profiles import Defaults, DoiPid, Profile, SheetProfile
 from bepress_importer.readers import Table, Workbook
+from bepress_importer.ror import RorResolver
 from bepress_importer.transforms import (
     apply_transform,
     derives_value,
@@ -104,14 +106,22 @@ def _sort_key(record_id: str) -> tuple:
     return (0, int(record_id)) if record_id.isdigit() else (1, record_id)
 
 
-def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> ConversionResult:
+def convert_workbook(
+    workbook: Workbook, profile: Profile, as_of: str, ror: RorResolver | None = None
+) -> ConversionResult:
     """Convert every profile-matched sheet to a per-collection list of KC Works records.
 
     as_of: ISO date used for embargo-activity decisions; an explicit input so
     output is reproducible.
+    ror: resolves affiliation text to ROR ids when the profile asks for them;
+    left out, only the ids the profile itself fixes are used (no lookups).
     """
     result = ConversionResult()
     origin: dict[int, str] = {}  # record → the sheet it came from, for late issues
+    if profile.defaults.affiliations is None:
+        ror = None
+    elif ror is None:
+        ror = offline_ror_resolver(profile.defaults)
     for table in workbook.tables:
         blocks = profile.match_sheets(table.name, columns=table.columns)
         if not blocks:
@@ -122,7 +132,7 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
             block_table, filter_doc = _apply_row_filter(block_table, block, profile.defaults)
             records = _convert_sheet(
                 block_table, block, profile.defaults, as_of, result.issues,
-                slug, result.value_changes,
+                slug, result.value_changes, ror=ror,
             )
             origin.update((id(record), table.name) for record in records)
             result.collections.setdefault(slug, []).extend(records)
@@ -136,6 +146,55 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
     if profile.defaults.doi_pid is not None:
         _register_doi_pids(result, profile.defaults.doi_pid, origin)
     return result
+
+
+def offline_ror_resolver(defaults: Defaults) -> RorResolver | None:
+    """A resolver for the ROR ids the profile itself fixes: no cache, no lookups."""
+    if defaults.affiliations is None:
+        return None
+    return RorResolver(
+        known=defaults.affiliations.ror_ids, min_score=defaults.affiliations.min_score
+    )
+
+
+def _use_ror_ids(
+    creators: list[dict], positions: list[int], prefix: str, ror: RorResolver,
+    collection: str, record_id: str,
+) -> list[ValueChange]:
+    """Replace each affiliation the resolver is sure of by its ROR id, in
+    place, and return one logged change per replacement."""
+    changes = []
+    for index, (creator, n) in enumerate(zip(creators, positions, strict=True)):
+        for slot, affiliation in enumerate(creator.get("affiliations", [])):
+            text = affiliation.get("name", "")
+            match = ror.resolve(text)
+            if match is None:
+                continue
+            creator["affiliations"][slot] = {"id": match.ror_id}
+            if match.evidence == "profile":
+                reason = (
+                    f"affiliation replaced by its ROR id — {match.name or text} is fixed "
+                    f"as {match.ror_id} in the profile"
+                )
+            else:
+                reason = (
+                    f"affiliation replaced by its ROR id — matched to "
+                    f"{match.name or match.ror_id} by the ROR API (its chosen match, "
+                    f"score {match.score:g})"
+                )
+            changes.append(
+                ValueChange(
+                    collection=collection,
+                    record_id=record_id,
+                    source=f"{prefix}{n}_institution",
+                    target=f"/metadata/creators/{index}/affiliations/{slot}",
+                    raw=text,
+                    result={"id": match.ror_id},
+                    action="transformed",
+                    reason=reason,
+                )
+            )
+    return changes
 
 
 def _register_doi_pids(
@@ -420,6 +479,7 @@ def _convert_sheet(
     issues: list[Issue],
     collection: str,
     value_changes: list[ValueChange],
+    ror: RorResolver | None = None,
 ) -> list[dict]:
     records = []
     for row in table.rows:
@@ -481,6 +541,13 @@ def _convert_sheet(
         creators = build_creators(row, defaults.authors)
         if creators:
             record["metadata"]["creators"] = creators
+            if ror is not None:
+                value_changes.extend(
+                    _use_ror_ids(
+                        creators, creator_positions(row, defaults.authors),
+                        defaults.authors.prefix, ror, collection, record_id,
+                    )
+                )
         if sheet.contributors:
             contributors = build_contributors(row, sheet.contributors)
             if contributors:

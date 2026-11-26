@@ -44,6 +44,19 @@ def _corporate_authors(row: dict[str, str], column: str | None) -> dict[int, str
     }
 
 
+def creator_positions(row: dict[str, str], config: AuthorColumns) -> list[int]:
+    """The author number N behind each creator build_creators returns, in the
+    same order (numbers with no author are skipped, so the two can differ)."""
+    corporate_at = _corporate_authors(row, config.json_column)
+    return [
+        n
+        for n in range(1, max(config.max, *corporate_at, 0) + 1)
+        if n in corporate_at
+        or _get(row, f"{config.prefix}{n}_fname")
+        or _get(row, f"{config.prefix}{n}_lname")
+    ]
+
+
 def build_creators(row: dict[str, str], config: AuthorColumns) -> list[dict]:
     """authorN_{fname,mname,lname,suffix,institution,is_corporate} columns → creators list.
 

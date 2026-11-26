@@ -113,6 +113,22 @@ class Defaults:
     season_style: str = "edtf-season"
     authors: AuthorColumns = field(default_factory=AuthorColumns)
     doi_pid: DoiPid | None = None
+    affiliations: Affiliations | None = None
+
+
+@dataclass(frozen=True)
+class Affiliations:
+    """How creators' affiliations get ROR ids.
+
+    ror_ids: {ror_id: names} — institutions whose id is fixed here, so no
+    lookup is ever made for them. ror_lookup: look every other affiliation up
+    in the ROR API (cached). min_score: the score the API's chosen match must
+    reach to be used.
+    """
+
+    ror_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    ror_lookup: bool = False
+    min_score: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -202,7 +218,7 @@ def load_profile(path: str | Path, known_transforms: set[str] | None = None) -> 
     if not name:
         raise ProfileError(f"{path}: [profile] section with a 'name' key is required")
 
-    defaults = _parse_defaults(data.get("defaults", {}))
+    defaults = _parse_defaults(data.get("defaults", {}), path)
     sheets = tuple(
         _parse_sheet(path, i, raw, known_transforms)
         for i, raw in enumerate(data.get("sheet", []))
@@ -215,7 +231,25 @@ def load_profile(path: str | Path, known_transforms: set[str] | None = None) -> 
     )
 
 
-def _parse_defaults(raw: dict) -> Defaults:
+def _parse_affiliations(raw: dict | None, path: Path) -> Affiliations | None:
+    if raw is None:
+        return None
+    ror_ids = {}
+    for ror_id, names in raw.get("ror_ids", {}).items():
+        if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+            raise ProfileError(
+                f"{path}: [defaults.affiliations.ror_ids] {ror_id!r} must list the "
+                "names the institution goes by"
+            )
+        ror_ids[ror_id] = tuple(names)
+    return Affiliations(
+        ror_ids=ror_ids,
+        ror_lookup=bool(raw.get("ror_lookup", False)),
+        min_score=float(raw.get("min_score", 1.0)),
+    )
+
+
+def _parse_defaults(raw: dict, path: Path) -> Defaults:
     authors_raw = raw.get("author_columns", {})
     doi_pid_raw = raw.get("doi_pid")
     doi_pid = None
@@ -235,6 +269,7 @@ def _parse_defaults(raw: dict) -> Defaults:
             json_column=authors_raw.get("json_column"),
         ),
         doi_pid=doi_pid,
+        affiliations=_parse_affiliations(raw.get("affiliations"), path),
     )
 
 

@@ -148,6 +148,22 @@ def describe_sheet(
                 f"; corporate authors listed only in the {defaults.authors.json_column} "
                 "JSON column are added at their position"
             )
+        if defaults.affiliations is not None:
+            fixed = ", ".join(
+                f"{names[0]} = {ror_id}"
+                for ror_id, names in defaults.affiliations.ror_ids.items()
+                if names
+            )
+            builders["creators"] += (
+                "; an affiliation is replaced by its ROR id ({\"id\": …}) when the "
+                f"profile fixes the institution's id ({fixed or 'none fixed'})"
+            )
+            if defaults.affiliations.ror_lookup:
+                builders["creators"] += (
+                    ", or when the ROR API's affiliation matcher returns a chosen, "
+                    f"uncontested match scoring at least {defaults.affiliations.min_score:g} "
+                    "— every other affiliation stays as text"
+                )
     if sheet.contributors:
         builders["contributors"] = (
             f"{sheet.contributors.prefix}1..{sheet.contributors.prefix}"
