@@ -155,3 +155,25 @@ def _strip_ansi(text):
     import re
 
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
+class TestExplainRecordAffiliations:
+    def test_ror_ids_the_profile_fixes_show_as_they_will_be_converted(self, tmp_path):
+        path = tmp_path / "ror.toml"
+        path.write_text(
+            PROFILE_TOML.replace(
+                "[[sheet]]",
+                '[defaults.affiliations]\nror_lookup = true\n'
+                '[defaults.affiliations.ror_ids]\n"00fc1qt65" = ["Bucknell University"]\n\n'
+                "[[sheet]]",
+                1,
+            )
+        )
+        columns = (*COLUMNS, "author1_fname", "author1_lname", "author1_institution")
+        cells = row("1") | {
+            "author1_fname": "Ada", "author1_lname": "Lovelace",
+            "author1_institution": "Bucknell University",
+        }
+        book = Workbook(tables=(Table(name="Content Inventory", columns=columns, rows=(cells,)),))
+        view = explain_record(book, load_profile(path), "1", as_of=AS_OF)
+        assert view.record["metadata"]["creators"][0]["affiliations"] == [{"id": "00fc1qt65"}]
