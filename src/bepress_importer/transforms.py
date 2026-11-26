@@ -13,6 +13,7 @@ import re
 from collections.abc import Callable
 
 from bepress_importer import edtf as edtf_module
+from bepress_importer.doi import doi_reference, extract_doi, is_resolver_address
 
 Transform = Callable[[str, dict[str, str], dict], object | None]
 
@@ -66,22 +67,65 @@ def edtf_date(value: str, row: dict[str, str], args: dict) -> object | None:
         return value  # left as-is for the wrangler's edtf-date rule to flag
 
 
-_DOI_RE = re.compile(r"(10\.\d{4,9}/\S+)", re.IGNORECASE)
+_URL_RE = re.compile(r"^https?://\S+$")
+_PMID_RE = re.compile(r"^pmid:?\s*(\d+)$", re.IGNORECASE)
+_FIRST_URL_RE = re.compile(r'https?://[^\s"<>]+', re.IGNORECASE)
+_BARE_WWW_RE = re.compile(r"^www\.[\w.-]+\.[a-z]{2,}(?:/\S*)?$", re.IGNORECASE)
+_INVISIBLE = dict.fromkeys(map(ord, "\ufeff\u200b\u200c\u200d\u2060"))
+
+
+def _find_url(value: str) -> str | None:
+    """The first web link in a messy cell, repairing the common typing slips."""
+    text = value.translate(_INVISIBLE).strip()
+    if text.lower().startswith("ttps://"):
+        text = "h" + text
+    if _BARE_WWW_RE.match(text):
+        return "http://" + text
+    match = _FIRST_URL_RE.search(text)
+    return match.group().rstrip(".,;") if match else None
 
 
 @transform("identifier")
 def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
-    """Value → {"identifier": ..., "scheme": args["scheme"]}, normalizing DOIs."""
+    """Value → {"identifier": ..., "scheme": args["scheme"]}.
+
+    args.normalize = "doi": the cell is meant to hold a DOI, which is reduced
+    to its bare form. A cell with no readable DOI is not passed off as one: a
+    PubMed id or a plain link is kept as a url identifier, anything else is
+    omitted.
+    args.scheme = "url": only real http(s) links are kept. With
+    args.doi_references a link to a DOI resolver (or a "doi:" label) yields a
+    doi identifier instead; with args.find_url the first link in a messy cell
+    is recovered.
+    """
     if "split" in args:
         value = value.split(args["split"])[0].strip()
         if not value:
             return None
     if args.get("normalize") == "doi":
-        match = _DOI_RE.search(value)
-        if match:
-            value = match.group(1)
-    if args.get("scheme") == "url" and not re.match(r"^https?://\S+$", value):
+        doi = extract_doi(value)
+        if doi:
+            return {"identifier": doi, "scheme": args["scheme"]}
+        pmid = _PMID_RE.match(value)
+        if pmid:
+            return {
+                "identifier": f"https://pubmed.ncbi.nlm.nih.gov/{pmid.group(1)}/",
+                "scheme": "url",
+            }
+        if _URL_RE.match(value) and not is_resolver_address(value):
+            return {"identifier": value, "scheme": "url"}
         return None
+    if args.get("scheme") == "url":
+        if args.get("doi_references"):
+            doi = doi_reference(value)
+            if doi:
+                return {"identifier": doi, "scheme": "doi"}
+            if is_resolver_address(value):
+                return None  # a DOI link whose DOI cannot be read leads nowhere
+        if args.get("find_url"):
+            value = _find_url(value) or ""
+        if not _URL_RE.match(value):
+            return None
     return {"identifier": value, "scheme": args["scheme"]}
 
 

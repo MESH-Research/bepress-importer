@@ -99,6 +99,119 @@ class TestIdentifier:
             "scheme": "url",
         }
 
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("http://dx.doi.org/10.17169/fqs-19.3.2661.", "10.17169/fqs-19.3.2661"),
+            ("doi/10.1111/j.1527-2001.2003.tb01413.x/abstract", "10.1111/j.1527-2001.2003.tb01413.x"),
+            ("https://doi.org/10.1016/ S2542-5196(21)00196-0", "10.1016/S2542-5196(21)00196-0"),
+        ],
+    )
+    def test_doi_is_cleaned_of_punctuation_and_page_suffixes(self, raw, expected):
+        result = apply("identifier", raw, args={"scheme": "doi", "normalize": "doi"})
+        assert result == {"identifier": expected, "scheme": "doi"}
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["Unknown", "10.3390", "j.aime.2025.100161", "10.1007.s00709-017-1117-9",
+         "doi:0.1016/j.appet.2017.01.013", "https://doi.org/10.1371/journal. pone.0247579"],
+    )
+    def test_doi_cell_without_a_readable_doi_is_omitted(self, raw):
+        assert apply("identifier", raw, args={"scheme": "doi", "normalize": "doi"}) is None
+
+    def test_pubmed_id_in_a_doi_cell_becomes_a_pubmed_link(self):
+        result = apply("identifier", "PMID: 21506449", args={"scheme": "doi", "normalize": "doi"})
+        assert result == {
+            "identifier": "https://pubmed.ncbi.nlm.nih.gov/21506449/",
+            "scheme": "url",
+        }
+
+    def test_plain_url_in_a_doi_cell_is_kept_as_a_link(self):
+        result = apply(
+            "identifier",
+            "https://joi.pm-research.com/content/28/5/122",
+            args={"scheme": "doi", "normalize": "doi"},
+        )
+        assert result == {
+            "identifier": "https://joi.pm-research.com/content/28/5/122",
+            "scheme": "url",
+        }
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "https://doi.org/10.1016/j.jmps.2018.02.012",
+            "http://dx.doi.org/10.1016/j.jmps.2018.02.012",
+            "dx.doi.org/10.1016/j.jmps.2018.02.012",
+            "doi.org/10.1016/j.jmps.2018.02.012",
+            "DOI: 10.1016/j.jmps.2018.02.012",
+        ],
+    )
+    def test_link_cell_holding_a_doi_reference_yields_a_doi_identifier(self, raw):
+        result = apply("identifier", raw, args={"scheme": "url", "doi_references": True})
+        assert result == {"identifier": "10.1016/j.jmps.2018.02.012", "scheme": "doi"}
+
+    def test_landing_page_link_stays_a_url_even_when_dois_are_recognised(self):
+        raw = "http://onlinelibrary.wiley.com/doi/10.1002/qua.560560711/abstract"
+        result = apply("identifier", raw, args={"scheme": "url", "doi_references": True})
+        assert result == {"identifier": raw, "scheme": "url"}
+
+    def test_resolver_link_stays_a_url_unless_doi_references_is_set(self):
+        raw = "https://doi.org/10.1016/j.jmps.2018.02.012"
+        assert apply("identifier", raw, args={"scheme": "url"}) == {
+            "identifier": raw,
+            "scheme": "url",
+        }
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            (
+                "http://pennsci.org/JPAS-88-1.2.pdf https://www.jstor.org/stable/10.5325/x",
+                "http://pennsci.org/JPAS-88-1.2.pdf",
+            ),
+            (
+                "https://www.proquest.com/redirect; https://substance.org/issue/substance-166/",
+                "https://www.proquest.com/redirect",
+            ),
+            (
+                "http://www.jstor.org/stable/1 or http://www.jstor.org/stable/pdf/1.pdf",
+                "http://www.jstor.org/stable/1",
+            ),
+            (
+                "On-line early view available at: http://onlinelibrary.wiley.com/journal/1",
+                "http://onlinelibrary.wiley.com/journal/1",
+            ),
+            (
+                '< a href="http://link.aps.org/doi/10.1103/PhysRevD.83.052007">http://link.aps.org/x',
+                "http://link.aps.org/doi/10.1103/PhysRevD.83.052007",
+            ),
+            (
+                "\ufeff\ufeffhttps://iopscience.iop.org/article/10.3847/0004-637X/830/2/55/meta",
+                "https://iopscience.iop.org/article/10.3847/0004-637X/830/2/55/meta",
+            ),
+            ("ttps://www.routledge.com/p/book/9780367632373", "https://www.routledge.com/p/book/9780367632373"),
+            ("www.pnas.org/cgi/doi/10.1073/pnas.1919764117", "http://www.pnas.org/cgi/doi/10.1073/pnas.1919764117"),
+            ("https://example.org/x", "https://example.org/x"),
+        ],
+    )
+    def test_find_url_recovers_the_first_link_from_a_messy_cell(self, raw, expected):
+        result = apply("identifier", raw, args={"scheme": "url", "find_url": True})
+        assert result == {"identifier": expected, "scheme": "url"}
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["No online access", "Link to full text", "Bulletin of Mathematical Biology",
+         "file:///Users/jrv010/Downloads/Paper.pdf", "IEEE Xplore - Abstract Page"],
+    )
+    def test_find_url_omits_cells_with_no_web_link(self, raw):
+        assert apply("identifier", raw, args={"scheme": "url", "find_url": True}) is None
+
+    def test_broken_resolver_link_is_omitted_rather_than_truncated(self):
+        args = {"scheme": "url", "doi_references": True, "find_url": True}
+        assert apply("identifier", "https://doi.org/10.1371/journal. pcbi.1011847", args=args) is None
+        assert apply("identifier", "dx.doi.org/0.1093/oxfordhb/9780195396706.013.0020", args=args) is None
+
     def test_split_arg_takes_first_segment(self):
         # Bepress ISBN cells like "9781684480166; eISBN; PDF"
         assert apply(

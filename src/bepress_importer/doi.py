@@ -23,6 +23,7 @@ _REFERENCE = re.compile(
     r"(?:^|\s|://)(?:(?:www\.)?(?:dx[./])?doi[./]org/+|doi\s*:)\s*(?=10\.\d{4,9}/)",
     re.IGNORECASE,
 )
+_RESOLVER = re.compile(r"(?:^|\s|://)(?:www\.)?(?:dx[./])?doi[./]org/", re.IGNORECASE)
 _BARE = re.compile(r"^\s*(?:https?://)?(?=10\.\d{4,9}/)", re.IGNORECASE)
 
 
@@ -80,3 +81,8 @@ def doi_reference(text: str) -> str | None:
     if not marker:
         return None
     return extract_doi(text[marker.end():])
+
+
+def is_resolver_address(text: str) -> bool:
+    """True when `text` points at a DOI resolver, readable DOI or not."""
+    return bool(_RESOLVER.search(text))
