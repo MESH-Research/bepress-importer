@@ -21,16 +21,19 @@ Transform = Callable[[str, dict[str, str], dict], object | None]
 TRANSFORMS: dict[str, Transform] = {}
 _ACCEPTS_EMPTY: set[str] = set()
 _DERIVES: set[str] = set()
+_OPPORTUNISTIC: set[str] = set()
 
 
 def transform(
-    name: str, accepts_empty: bool = False, derives: bool = False
+    name: str, accepts_empty: bool = False, derives: bool = False, opportunistic: bool = False
 ) -> Callable[[Transform], Transform]:
     """Register a transform.
 
     accepts_empty: it runs even when its source cell is empty (it scans the row).
     derives: a value it produces from an empty cell was worked out from other
     columns, which is worth recording in the conversion log.
+    opportunistic: it only picks up the occasional value another mapping of
+    the same column passes over, so yielding nothing is not an omission.
     """
 
     def register(fn: Transform) -> Transform:
@@ -39,6 +42,8 @@ def transform(
             _ACCEPTS_EMPTY.add(name)
         if derives:
             _DERIVES.add(name)
+        if opportunistic:
+            _OPPORTUNISTIC.add(name)
         return fn
 
     return register
@@ -47,6 +52,11 @@ def transform(
 def derives_value(name: str) -> bool:
     """True for transforms whose result from an empty cell should be logged."""
     return name in _DERIVES
+
+
+def is_opportunistic(name: str) -> bool:
+    """True for transforms whose empty result is not worth logging as dropped."""
+    return name in _OPPORTUNISTIC
 
 
 def known_transforms() -> set[str]:
@@ -320,7 +330,7 @@ def rights_statement(value: str, row: dict[str, str], args: dict) -> object | No
     return text if text and reads_as_rights_statement(text) else None
 
 
-@transform("misplaced_description")
+@transform("misplaced_description", opportunistic=True)
 def misplaced_description(value: str, row: dict[str, str], args: dict) -> object | None:
     """Descriptive prose typed into a rights column, rescued as a description.
 

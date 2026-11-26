@@ -16,7 +16,12 @@ from bepress_importer.doi import is_resolver_address
 from bepress_importer.pids import doi_claim, keep_doi_as_link, promote_doi_pid
 from bepress_importer.profiles import Defaults, DoiPid, Profile, SheetProfile
 from bepress_importer.readers import Table, Workbook
-from bepress_importer.transforms import apply_transform, derives_value, publisher_evidence
+from bepress_importer.transforms import (
+    apply_transform,
+    derives_value,
+    is_opportunistic,
+    publisher_evidence,
+)
 
 
 @dataclass(frozen=True)
@@ -287,6 +292,24 @@ def _collection_slug(table: Table, sheet_profile: SheetProfile) -> str:
     return _slugify(table.name)
 
 
+def _needs_review(
+    source: str, transform: str, args: dict, raw: str, value: object
+) -> str | None:
+    """A message for the issue list when a value was left out for a reason a
+    person should look at (as opposed to routine normalization)."""
+    if not raw or value is not None:
+        return None
+    if transform == "identifier" and args.get("normalize") == "doi":
+        return f"{source} value {raw!r} is not a readable DOI — omitted"
+    if transform == "rights_statement":
+        excerpt = raw if len(raw) <= 60 else raw[:60] + "…"
+        return (
+            f"{source} text does not read as a copyright or rights statement — "
+            f"not imported as copyright: {excerpt!r}"
+        )
+    return None
+
+
 def _describe_change(
     transform: str, args: dict, raw: str, value: object, row: dict[str, str], as_of: str
 ) -> str:
@@ -326,6 +349,18 @@ def _describe_change(
         return f"split into separate items on {args.get('sep', ',')!r}"
     if transform == "strip_html":
         return "HTML markup removed"
+    if transform == "rights_statement":
+        if value is None:
+            return (
+                "does not read as a copyright or rights statement — kept out of the "
+                "copyright field"
+            )
+        return "HTML markup removed"
+    if transform == "misplaced_description":
+        return (
+            "descriptive text found in a rights column, and the record has no abstract "
+            "of its own — used as the description"
+        )
     if transform == "additional_description":
         return "HTML removed; stored as an additional description"
     if transform == "url":
@@ -398,7 +433,12 @@ def _convert_sheet(
             if mapping.transform:
                 value = apply_transform(mapping.transform, raw, row, args)
                 derived = not raw and value is not None and derives_value(mapping.transform)
-                if (raw or derived) and value != raw:
+                opportunistic = is_opportunistic(mapping.transform)
+                passed_over = value is None and opportunistic
+                # a value an opportunistic transform does pick up has been
+                # re-routed, which is worth recording even if unaltered
+                changed = value != raw or (opportunistic and value is not None)
+                if (raw or derived) and changed and not passed_over:
                     value_changes.append(
                         ValueChange(
                             collection=collection,
@@ -413,19 +453,9 @@ def _convert_sheet(
                             ),
                         )
                     )
-                if (
-                    raw
-                    and value is None
-                    and mapping.transform == "identifier"
-                    and args.get("normalize") == "doi"
-                ):
-                    issues.append(
-                        Issue(
-                            table.name,
-                            record_id,
-                            f"{mapping.source} value {raw!r} is not a readable DOI — omitted",
-                        )
-                    )
+                concern = _needs_review(mapping.source, mapping.transform, args, raw, value)
+                if concern:
+                    issues.append(Issue(table.name, record_id, concern))
             else:
                 value = raw or None
             if value is not None:

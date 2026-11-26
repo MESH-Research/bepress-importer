@@ -61,6 +61,10 @@ _TRANSFORM_NOTES = {
     "related_identifier": "linked as a related identifier",
     "prefixed_tag": "imported as a namespaced user-defined tag",
     "author_institution": "first non-empty author institution column",
+    "rights_statement": "HTML removed; kept only if it reads as a copyright, "
+                        "licence, permission or version statement",
+    "misplaced_description": "descriptive prose found in a rights column, used as "
+                             "the description when the record has no abstract",
     "publisher": "publisher as given, else inferred from a copyright statement "
                  "naming it, the DOI's registrant prefix or a link to its site",
 }
