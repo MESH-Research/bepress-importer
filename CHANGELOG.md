@@ -1,3 +1,13 @@
+## 1.6.0 (2026-11-26)
+
+### Feat
+
+- **upload**: back up an existing receipts file before overwriting it
+- **upload-client**: carry on through every batch after a failure
+- **upload-client**: add --batch option to send records in batches
+- **hard-delete**: add command to hard-delete a collection's records
+- **upload**: add --all-or-none/--no-all-or-none flag to upload commands
+
 ## 1.5.0 (2026-11-21)
 
 ### Feat
