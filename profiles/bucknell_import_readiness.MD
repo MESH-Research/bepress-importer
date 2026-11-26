@@ -135,6 +135,57 @@ alongside the Digital Commons names.
 | An email address as an author's affiliation | not an affiliation |
 | 18 student journal items with no publication date | the date posted to Digital Commons is used, and logged as such |
 
+### 6. ROR ids for creator affiliations
+
+A creator's affiliation is now `{"id": "<ror id>"}` instead of
+`{"name": "…"}` wherever the institution is certain. Each replacement is a
+line in the conversion log against its `authorN_institution` column, with the
+original text and the organisation matched.
+
+- **Bucknell is fixed in the profile** as `00fc1qt65` and never looked up:
+  "Bucknell University", "Bucknell", "Bucknell U", "Bucknell Univ", alone or
+  after a department ("Biology Department, Bucknell University"). The
+  Geisinger-Bucknell Autism and Developmental Medicine Institute is a
+  different body and is not treated as Bucknell.
+- **Every other affiliation is put to the ROR API** and replaced only when
+  ROR marks one organisation as its chosen match at score 1.0 **and** the
+  text is that organisation's official name, alone or followed by its own
+  city, region or country.
+
+The second condition was added after reading the first run's results. ROR's
+chosen flag at full score also fires on aliases and shared words:
+
+| Text in the export | ROR's chosen match |
+|---|---|
+| NC State | North Central State College |
+| IIIT Delhi | Indian Institute of Technology Delhi |
+| Shamokin Creek Restoration Alliance | Digital Research Alliance of Canada |
+| Winston-Salem State | Minnesota State Community and Technical College |
+| Rotterdam School of Management | Telfer School of Management |
+| University of California - Berkeley | University of California System |
+| Massachusetts General Hospital and Harvard Medical School | Massachusetts General Hospital |
+
+None of these is used. All 412 accepted matches were read through.
+
+| | Affiliations | Distinct texts |
+|---|---:|---:|
+| Bucknell, fixed id | 4,969 | 8 |
+| ROR id from the API | 1,329 | 412 |
+| Left as text: ROR chose something, not certain | | 112 |
+| Left as text: ROR chose nothing | | 178 |
+| Left as text, total | 639 | 290 |
+
+The most frequent texts left as text although ROR's choice is right, which
+could be confirmed and added to `ror_ids` in the profile: "University of
+Illinois at Urbana-Champaign" (36), "Penn State University" (29), "SUNY
+University at Buffalo" (10), "SUNY Oswego" (8), "Virginia Polytechnic
+Institute and State University" (6).
+
+Lookups are cached in `ror-cache.sqlite3` (git-ignored), so a re-run makes no
+requests and is byte-identical. The before/after tables below were taken
+before this change and do not count it; it touches every record with an
+affiliation.
+
 ## How the output differs
 
 ### `fac_journ.json` (2,118 records, 1,538 changed)
@@ -209,6 +260,8 @@ DOIs, 6 shared DOIs, 4 non-rights statements.
   registered for them.
 - The `pids` block follows the shape given for this work; the Import API
   reference does not document it.
+- That every ROR id used is in the affiliations vocabulary of the KC Works
+  instance. An id the instance does not know would fail validation.
 
 ### Source data worth correcting in the spreadsheet
 
