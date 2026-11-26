@@ -72,7 +72,7 @@ def apply_transform(name: str, value: str, row: dict[str, str], args: dict) -> o
     return TRANSFORMS[name](value, row, args)
 
 
-@transform("edtf_date", accepts_empty=True)
+@transform("edtf_date", accepts_empty=True, derives=True)
 def edtf_date(value: str, row: dict[str, str], args: dict) -> object | None:
     """ISO-ish date (+ optional season column) → EDTF; unparseable input passes through.
 

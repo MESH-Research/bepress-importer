@@ -11,6 +11,7 @@ from bepress_importer.builders import (
     build_creators,
     build_imprint,
     build_journal,
+    implausible_journal_values,
 )
 from bepress_importer.doi import is_resolver_address
 from bepress_importer.pids import doi_claim, keep_doi_as_link, promote_doi_pid
@@ -315,6 +316,11 @@ def _describe_change(
 ) -> str:
     """Human explanation for why a transformed value differs from its source."""
     if transform == "edtf_date":
+        if not raw:
+            used = next(
+                (c for c in args.get("fallback_columns", []) if row.get(c, "").strip()), "?"
+            )
+            return f"no date in this column — taken from {used} instead"
         season = row.get(args.get("season_column", ""), "").strip()
         if isinstance(value, str) and season and "-2" in value[4:]:
             return f"Bepress year-placeholder date refined to EDTF season using {season!r}"
@@ -476,6 +482,28 @@ def _convert_sheet(
             journal = build_journal(row, sheet.journal)
             if journal:
                 set_pointer(record, "/custom_fields/journal:journal", journal)
+            for column, cell in implausible_journal_values(row, sheet.journal):
+                excerpt = cell if len(cell) <= 60 else cell[:60] + "…"
+                issues.append(
+                    Issue(
+                        table.name,
+                        record_id,
+                        f"{column} value {excerpt!r} is not a volume, issue or page "
+                        "reference — omitted",
+                    )
+                )
+                value_changes.append(
+                    ValueChange(
+                        collection=collection,
+                        record_id=record_id,
+                        source=column,
+                        target="/custom_fields/journal:journal",
+                        raw=cell,
+                        result=None,
+                        action="dropped",
+                        reason="not a volume, issue or page reference — value omitted",
+                    )
+                )
         if sheet.imprint:
             imprint = build_imprint(row, sheet.imprint)
             if imprint:

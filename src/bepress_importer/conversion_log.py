@@ -32,6 +32,8 @@ def mapped_columns(sheet: SheetProfile, defaults: Defaults) -> set[str]:
     for n in range(1, defaults.authors.max + 1):
         for part in AUTHOR_PARTS:
             mapped.add(f"{defaults.authors.prefix}{n}_{part}")
+    if defaults.authors.json_column:
+        mapped.add(defaults.authors.json_column)
     if sheet.contributors:
         for n in range(1, sheet.contributors.max + 1):
             mapped.add(f"{sheet.contributors.prefix}{n}")
@@ -138,6 +140,11 @@ def describe_sheet(
             "metadata.creators (personal names assembled as 'Family, Given'; "
             "is_corporate rows become organizational creators)"
         )
+        if defaults.authors.json_column:
+            builders["creators"] += (
+                f"; corporate authors listed only in the {defaults.authors.json_column} "
+                "JSON column are added at their position"
+            )
     if sheet.contributors:
         builders["contributors"] = (
             f"{sheet.contributors.prefix}1..{sheet.contributors.prefix}"

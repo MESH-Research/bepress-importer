@@ -232,6 +232,7 @@ def _parse_defaults(raw: dict) -> Defaults:
         authors=AuthorColumns(
             prefix=authors_raw.get("prefix", "author"),
             max=authors_raw.get("max", 32),
+            json_column=authors_raw.get("json_column"),
         ),
         doi_pid=doi_pid,
     )
