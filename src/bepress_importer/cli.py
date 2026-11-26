@@ -535,8 +535,14 @@ def _read_api_key(api_key_env, api_key_file, reporter, default_env=None) -> str:
     return api_key
 
 
-def _finish_upload(result, metadata_file: str, receipts_path, reporter) -> None:
-    """Write receipts, print the summary, and exit non-zero on failure."""
+def _finish_upload(result, metadata_file: str, receipts_path, reporter,
+                   batched: bool = False) -> None:
+    """Write receipts, print the summary, and exit non-zero on failure.
+
+    A batched run has no single HTTP status; its message is the summary.
+    """
+    headline = result.message if batched else f"HTTP {result.status_code}: {result.message}"
+    failure = result.message if batched else f"HTTP {result.status_code}"
     receipts_path = Path(
         receipts_path or Path(metadata_file).with_suffix(".receipts.json")
     )
@@ -546,11 +552,11 @@ def _finish_upload(result, metadata_file: str, receipts_path, reporter) -> None:
             reporter.say("Import reported success (HTTP 201); every record should now "
                          "have a record_url in the receipts file")
         else:
-            reporter.say(f"Import FAILED (HTTP {result.status_code}); the response body "
+            reporter.say(f"Import FAILED ({failure}); the response body "
                          "above and the per-record errors in the receipts file are what "
                          "the KCWorks maintainer will need")
         reporter.say(f"Writing per-record receipts to {receipts_path}")
-    click.echo(f"HTTP {result.status_code}: {result.message}")
+    click.echo(headline)
     click.echo(f"receipts → {receipts_path}")
     if not result.success:
         raise SystemExit(1)
@@ -614,9 +620,12 @@ def upload(metadata_file, collection_id, api_url, api_key_env, api_key_file, rec
 
 @cli.command("upload-client")
 @_upload_options
+@click.option("--batch", "batch_size", type=click.IntRange(min=1), default=None,
+              help="Send the records this many at a time, one request per batch "
+                   "(default: the whole file in one request).")
 def upload_client_command(metadata_file, collection_id, api_url, api_key_env, api_key_file,
                           receipts_path, dry_run, debug_mode, notify_record_owners,
-                          all_or_none) -> None:
+                          all_or_none, batch_size) -> None:
     """Upload a collection JSON file via kcworks-import-client.
 
     Same route and receipts as `upload`, but the request is built and sent
@@ -625,23 +634,46 @@ def upload_client_command(metadata_file, collection_id, api_url, api_key_env, ap
     """
     from kcworks_import_client import ImportRequestError
 
-    from bepress_importer.upload_client import upload_collection_via_client
+    from bepress_importer.upload_client import (
+        split_batches,
+        upload_batches_via_client,
+        upload_collection_via_client,
+    )
 
     reporter = _debug_reporter(debug_mode)
     records = _load_upload_records(metadata_file, reporter)
     api_url, target = _resolve_upload_target(api_url, collection_id, records, reporter)
 
     if dry_run:
+        batches = ""
+        if batch_size is not None:
+            batches = (f" in {len(split_batches(records, batch_size))} batch(es) "
+                       f"of up to {batch_size}")
         if reporter:
             reporter.say("Dry run: no token needed and nothing will be POSTed. The client "
                          "library builds the request at send time; it would be given "
                          f"all_or_none={str(all_or_none).lower()} and notify_record_owners="
-                         f"{str(notify_record_owners).lower()}")
+                         f"{str(notify_record_owners).lower()}{batches}")
         click.echo(f"dry run: would POST {len(records)} record(s) to {target} "
-                   "via kcworks-import-client")
+                   f"via kcworks-import-client{batches}")
         return
 
     api_key = _read_api_key(api_key_env, api_key_file, reporter)
+    if batch_size is not None:
+        result = upload_batches_via_client(
+            records,
+            collection_id,
+            api_key=api_key,
+            batch_size=batch_size,
+            api_url=api_url,
+            notify_record_owners=notify_record_owners,
+            all_or_none=all_or_none,
+            debug=reporter,
+            metadata_file=metadata_file,
+            on_batch=lambda report: click.echo(report.describe()),
+        )
+        _finish_upload(result, metadata_file, receipts_path, reporter, batched=True)
+        return
     try:
         result = upload_collection_via_client(
             records,

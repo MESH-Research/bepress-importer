@@ -7,10 +7,12 @@ The bearer token is never logged.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
 
 import requests
-from kcworks_import_client import ImportClient
+from kcworks_import_client import ImportClient, ImportRequestError
 
 from bepress_importer.upload import DEFAULT_API_URL, UploadResult, build_receipts
 
@@ -53,6 +55,146 @@ def make_session() -> MultipartSession:
     return MultipartSession()
 
 
+@dataclass
+class BatchReport:
+    """What happened to one batch of a batched upload."""
+
+    number: int
+    total: int
+    # 1-based positions of the batch's first and last record in the input file.
+    first: int
+    last: int
+    # None when no response was received at all.
+    status_code: int | None
+    message: str
+
+    @property
+    def success(self) -> bool:
+        return self.status_code == 201
+
+    @property
+    def accepted(self) -> bool:
+        """Whether the server took the batch, in whole (201) or in part (207)."""
+        return self.status_code in (201, 207)
+
+    @property
+    def outcome(self) -> str:
+        if self.status_code is None:
+            return f"no response: {self.message}"
+        return f"HTTP {self.status_code}: {self.message}"
+
+    def describe(self) -> str:
+        """One line for the progress log."""
+        span = f"records {self.first}-{self.last}" if self.last >= self.first else "no records"
+        return f"batch {self.number}/{self.total} ({span}): {self.outcome}"
+
+
+def split_batches(records: list[dict], batch_size: int) -> list[list[dict]]:
+    """The records in file order, `batch_size` to a batch; the last may be smaller.
+
+    An empty list is still one (empty) batch, so the server answers for it as
+    it would for an unbatched upload.
+    """
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+    return [
+        records[start:start + batch_size] for start in range(0, len(records), batch_size)
+    ] or [records]
+
+
+def upload_batches_via_client(
+    records: list[dict],
+    collection_id: str,
+    api_key: str,
+    batch_size: int,
+    api_url: str = DEFAULT_API_URL,
+    notify_record_owners: bool = False,
+    all_or_none: bool = True,
+    session: requests.Session | None = None,
+    debug=None,
+    metadata_file: str | None = None,
+    on_batch: Callable[[BatchReport], None] | None = None,
+) -> UploadResult:
+    """POST one collection's records `batch_size` at a time, in file order.
+
+    Each batch is its own request, so `all_or_none` holds within a batch, not
+    across the file. The run stops at the first batch the server rejects
+    outright or that gets no response; the records after it are not sent. A
+    partly imported batch (HTTP 207) does not stop it.
+
+    Returns one result for the whole run: receipts merged from every batch
+    that got a response, success only if every batch returned 201, a message
+    summarising the run, and the status of the first batch that was not a
+    plain success (0 if that batch got no response). `on_batch` is called
+    with a BatchReport as each batch finishes. With `debug` and
+    `metadata_file`, each batch saves its own curl replay payload.
+    """
+    session = session or make_session()
+    batches = split_batches(records, batch_size)
+    width = len(str(len(batches)))
+    receipts: dict[str, dict] = {}
+    reports: list[BatchReport] = []
+    sent = 0
+    for number, batch in enumerate(batches, start=1):
+        first, sent = sent + 1, sent + len(batch)
+        if debug:
+            debug.say(f"Batch {number} of {len(batches)}: {len(batch)} record(s), "
+                      f"up to record {sent} of {len(records)}")
+        payload_file = None
+        if metadata_file:
+            payload_file = str(
+                Path(metadata_file).with_suffix(f".batch-{number:0{width}d}.payload.json")
+            )
+        try:
+            result = upload_collection_via_client(
+                batch,
+                collection_id,
+                api_key=api_key,
+                api_url=api_url,
+                notify_record_owners=notify_record_owners,
+                all_or_none=all_or_none,
+                session=session,
+                debug=debug,
+                metadata_file=metadata_file,
+                payload_file=payload_file,
+            )
+        except ImportRequestError as exc:
+            report = BatchReport(number, len(batches), first, sent, None, str(exc))
+        else:
+            receipts.update(result.receipts)
+            report = BatchReport(
+                number, len(batches), first, sent, result.status_code, result.message
+            )
+        reports.append(report)
+        if on_batch:
+            on_batch(report)
+        if not report.accepted:
+            break
+
+    troubled = next((report for report in reports if not report.success), None)
+    return UploadResult(
+        status_code=201 if troubled is None else troubled.status_code or 0,
+        success=troubled is None,
+        message=_summarise(reports, len(records)),
+        receipts=receipts,
+    )
+
+
+def _summarise(reports: list[BatchReport], record_count: int) -> str:
+    last = reports[-1]
+    imported = sum(1 for report in reports if report.success)
+    parts = [f"{imported} of {last.total} batch(es) imported"]
+    partly = sum(1 for report in reports if report.status_code == 207)
+    if partly:
+        parts.append(f"{partly} partly imported (per-record errors are in the receipts)")
+    if not last.accepted:
+        parts.append(f"stopped at batch {last.number} ({last.outcome})")
+        unsent = record_count - last.last
+        if unsent:
+            parts.append(f"{unsent} later record(s) not sent")
+    return "; ".join(parts)
+
+
 def upload_collection_via_client(
     records: list[dict],
     collection_id: str,
@@ -63,6 +205,7 @@ def upload_collection_via_client(
     session: requests.Session | None = None,
     debug=None,
     metadata_file: str | None = None,
+    payload_file: str | None = None,
 ) -> UploadResult:
     """POST one collection's records via kcworks-import-client.
 
@@ -70,7 +213,7 @@ def upload_collection_via_client(
     library's ImportRequestError when no response was received. With a
     DebugReporter in `debug`, dumps the request the library sent and the
     server's response; given `metadata_file` too, it also saves a curl replay
-    payload next to that file.
+    payload next to that file (or at `payload_file`, when given).
     """
     session = session or make_session()
     # base_url is always passed, so the library never applies its own reading
@@ -101,7 +244,7 @@ def upload_collection_via_client(
         if metadata_file:
             debug.show_replay(
                 response.request.url, getattr(session, "last_form", {}),
-                metadata_file=metadata_file,
+                metadata_file=metadata_file, payload_file=payload_file,
             )
         debug.say("Server replied; full response follows:")
         debug.show_response(response)

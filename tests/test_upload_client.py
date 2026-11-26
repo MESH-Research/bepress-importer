@@ -15,7 +15,11 @@ from requests.adapters import BaseAdapter
 
 from bepress_importer import upload_client
 from bepress_importer.cli import cli
-from bepress_importer.upload_client import MultipartSession, upload_collection_via_client
+from bepress_importer.upload_client import (
+    MultipartSession,
+    upload_batches_via_client,
+    upload_collection_via_client,
+)
 
 RECORDS = [
     {
@@ -350,3 +354,344 @@ class TestUploadClientCommand:
         result = self.run(tmp_path, monkeypatch, flag, env={"KCWORKS_IMPORT_API_KEY": "k"})
         assert result.exit_code != 0
         assert self.transport.requests == []
+
+
+def numbered_records(count):
+    """`count` records whose import-recids are "1", "2", ... in order."""
+    return [
+        {
+            "metadata": {
+                "identifiers": [{"identifier": str(number), "scheme": "import-recid"}],
+                "title": f"Record {number}",
+            },
+            "files": {"enabled": False},
+        }
+        for number in range(1, count + 1)
+    ]
+
+
+def recids_in(request) -> list[str]:
+    """The import-recids of the records one request carried, in order."""
+    return [
+        record["metadata"]["identifiers"][0]["identifier"]
+        for record in json.loads(form_fields(request)["metadata"])
+    ]
+
+
+class BatchTransport(BaseAdapter):
+    """Stands in for the server, answering each request about the records it carried.
+
+    `replies` maps a 1-based request number to how that request fares: an
+    HTTP status, or an exception when no response comes back. Requests not
+    listed succeed with 201. A 207 reply fails the request's first record
+    and imports the rest; any other status fails every record.
+    """
+
+    def __init__(self, replies=None):
+        super().__init__()
+        self.replies = replies or {}
+        self.requests = []
+
+    def send(self, request, **kwargs):
+        self.requests.append(request)
+        outcome = self.replies.get(len(self.requests), 201)
+        if isinstance(outcome, Exception):
+            raise outcome
+        imported, failed = [], []
+        for index, recid in enumerate(recids_in(request)):
+            if outcome == 201 or (outcome == 207 and index > 0):
+                imported.append({
+                    "item_index": index,
+                    "record_id": f"kc-{recid}",
+                    "source_id": recid,
+                    "record_url": f"https://works.example.org/records/kc-{recid}",
+                    "errors": [],
+                })
+            else:
+                failed.append({
+                    "item_index": index,
+                    "record_id": None,
+                    "source_id": recid,
+                    "record_url": None,
+                    "errors": [{"field": "title", "message": "Required field missing."}],
+                })
+        response = requests.Response()
+        response.status_code = outcome
+        response.headers["Content-Type"] = "application/json"
+        response._content = json.dumps({
+            "status": "success" if outcome == 201 else "error",
+            "message": "Imported." if outcome == 201 else "Validation failed.",
+            "data": imported,
+            "errors": failed,
+        }).encode("utf-8")
+        response.request = request
+        response.url = request.url
+        return response
+
+    def close(self):
+        pass
+
+
+class TestUploadBatchesViaClient:
+    def upload(self, transport, count, batch_size, **kwargs):
+        return upload_batches_via_client(
+            numbered_records(count), "coll-1", api_key="sekrit", batch_size=batch_size,
+            session=session_with(transport), **kwargs
+        )
+
+    def test_sends_the_records_batch_size_at_a_time_in_file_order(self):
+        transport = BatchTransport()
+        self.upload(transport, count=5, batch_size=2)
+        assert [recids_in(request) for request in transport.requests] == [
+            ["1", "2"], ["3", "4"], ["5"]
+        ]
+
+    def test_each_batch_carries_whole_records(self):
+        transport = BatchTransport()
+        self.upload(transport, count=3, batch_size=2)
+        sent = [
+            record
+            for request in transport.requests
+            for record in json.loads(form_fields(request)["metadata"])
+        ]
+        assert sent == numbered_records(3)
+
+    def test_an_exact_multiple_sends_no_empty_batch(self):
+        transport = BatchTransport()
+        self.upload(transport, count=4, batch_size=2)
+        assert [recids_in(request) for request in transport.requests] == [
+            ["1", "2"], ["3", "4"]
+        ]
+
+    def test_a_batch_size_larger_than_the_file_sends_one_request(self):
+        transport = BatchTransport()
+        self.upload(transport, count=3, batch_size=20)
+        assert [recids_in(request) for request in transport.requests] == [["1", "2", "3"]]
+
+    def test_a_batch_size_of_one_sends_each_record_alone(self):
+        transport = BatchTransport()
+        self.upload(transport, count=3, batch_size=1)
+        assert [recids_in(request) for request in transport.requests] == [["1"], ["2"], ["3"]]
+
+    def test_every_batch_goes_to_the_import_route_with_the_token(self):
+        transport = BatchTransport()
+        self.upload(transport, count=3, batch_size=2, api_url="https://staging.example.org/")
+        assert len(transport.requests) == 2
+        for request in transport.requests:
+            assert request.method == "POST"
+            assert request.url == "https://staging.example.org/api/import/coll-1"
+            assert request.headers["Authorization"] == "Bearer sekrit"
+            assert request.headers["Content-Type"].startswith("multipart/form-data")
+
+    def test_every_batch_carries_the_upload_flags(self):
+        default = BatchTransport()
+        self.upload(default, count=3, batch_size=2)
+        for request in default.requests:
+            assert form_fields(request)["all_or_none"] == "true"
+            assert form_fields(request)["notify_record_owners"] == "false"
+        changed = BatchTransport()
+        self.upload(changed, count=3, batch_size=2, all_or_none=False,
+                    notify_record_owners=True)
+        assert len(changed.requests) == 2
+        for request in changed.requests:
+            assert form_fields(request)["all_or_none"] == "false"
+            assert form_fields(request)["notify_record_owners"] == "true"
+
+    def test_receipts_from_every_batch_are_merged(self):
+        result = self.upload(BatchTransport(), count=5, batch_size=2)
+        assert result.success
+        assert result.status_code == 201
+        assert sorted(result.receipts, key=int) == ["1", "2", "3", "4", "5"]
+        assert result.receipts["5"]["record_url"] == "https://works.example.org/records/kc-5"
+
+    def test_a_rejected_batch_stops_the_run(self):
+        transport = BatchTransport(replies={2: 400})
+        result = self.upload(transport, count=6, batch_size=2)
+        assert [recids_in(request) for request in transport.requests] == [
+            ["1", "2"], ["3", "4"]
+        ]
+        assert not result.success
+        assert result.status_code == 400
+
+    def test_a_rejected_batch_keeps_earlier_receipts_and_its_own_errors(self):
+        result = self.upload(BatchTransport(replies={2: 400}), count=6, batch_size=2)
+        assert result.receipts["1"]["record_url"] == "https://works.example.org/records/kc-1"
+        assert result.receipts["2"]["record_id"] == "kc-2"
+        assert result.receipts["3"]["errors"][0]["field"] == "title"
+        assert result.receipts["4"]["record_url"] is None
+        assert "5" not in result.receipts and "6" not in result.receipts
+
+    def test_no_response_stops_the_run_and_keeps_earlier_receipts(self):
+        transport = BatchTransport(
+            replies={2: requests.exceptions.ConnectionError("no route")}
+        )
+        result = self.upload(transport, count=6, batch_size=2)
+        assert len(transport.requests) == 2
+        assert not result.success
+        assert sorted(result.receipts) == ["1", "2"]
+        assert "no route" in result.message
+
+    def test_a_partly_imported_batch_does_not_stop_the_run(self):
+        transport = BatchTransport(replies={1: 207})
+        result = self.upload(transport, count=4, batch_size=2, all_or_none=False)
+        assert [recids_in(request) for request in transport.requests] == [
+            ["1", "2"], ["3", "4"]
+        ]
+        assert not result.success
+        assert result.receipts["1"]["errors"]
+        assert result.receipts["2"]["record_id"] == "kc-2"
+        assert result.receipts["4"]["record_id"] == "kc-4"
+
+    def test_reports_each_batch_as_it_finishes(self):
+        reports = []
+        self.upload(BatchTransport(replies={2: 400}), count=5, batch_size=2,
+                    on_batch=reports.append)
+        assert [(r.number, r.total, r.first, r.last, r.status_code, r.success)
+                for r in reports] == [(1, 3, 1, 2, 201, True), (2, 3, 3, 4, 400, False)]
+
+    def test_reports_a_batch_that_got_no_response(self):
+        reports = []
+        self.upload(
+            BatchTransport(replies={1: requests.exceptions.ConnectionError("no route")}),
+            count=3, batch_size=2, on_batch=reports.append,
+        )
+        assert len(reports) == 1
+        assert reports[0].status_code is None
+        assert not reports[0].success
+        assert "no route" in reports[0].message
+
+    def test_secret_never_reaches_the_debug_transcript(self):
+        from bepress_importer.debug import DebugReporter
+
+        lines = []
+        self.upload(BatchTransport(), count=3, batch_size=2, debug=DebugReporter(lines.append))
+        transcript = "\n".join(lines)
+        assert "sekrit" not in transcript
+        assert '"title": "Record 3"' in transcript
+
+
+class TestUploadClientBatchOption:
+    def run(self, tmp_path, monkeypatch, *extra, count=5, transport=None, env=None):
+        metadata = tmp_path / "coll.json"
+        metadata.write_text(json.dumps(numbered_records(count), indent=2))
+        self.transport = transport or BatchTransport()
+        monkeypatch.setattr(
+            upload_client, "make_session", lambda: session_with(self.transport)
+        )
+        return CliRunner().invoke(
+            cli,
+            ["upload-client", str(metadata), "--collection-id", "coll-1",
+             "--receipts", str(tmp_path / "receipts.json"), *map(str, extra)],
+            env={"KCWORKS_IMPORT_API_URL": "", "KCWORKS_IMPORT_API_KEY": "sekrit",
+                 **(env or {})},
+        )
+
+    def sent(self):
+        return [recids_in(request) for request in self.transport.requests]
+
+    def test_without_batch_the_whole_file_goes_in_one_request(self, tmp_path, monkeypatch):
+        result = self.run(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert self.sent() == [["1", "2", "3", "4", "5"]]
+
+    def test_batch_splits_the_file_across_requests(self, tmp_path, monkeypatch):
+        result = self.run(tmp_path, monkeypatch, "--batch", 2)
+        assert result.exit_code == 0, result.output
+        assert self.sent() == [["1", "2"], ["3", "4"], ["5"]]
+
+    def test_batch_of_twenty_sends_twenty_records_at_a_time(self, tmp_path, monkeypatch):
+        result = self.run(tmp_path, monkeypatch, "--batch", 20, count=45)
+        assert result.exit_code == 0, result.output
+        assert [len(batch) for batch in self.sent()] == [20, 20, 5]
+        assert [recid for batch in self.sent() for recid in batch] == [
+            str(number) for number in range(1, 46)
+        ]
+
+    def test_receipts_file_covers_every_batch(self, tmp_path, monkeypatch):
+        result = self.run(tmp_path, monkeypatch, "--batch", 2)
+        assert result.exit_code == 0, result.output
+        receipts = json.loads((tmp_path / "receipts.json").read_text())
+        assert sorted(receipts, key=int) == ["1", "2", "3", "4", "5"]
+        assert receipts["5"]["record_url"] == "https://works.example.org/records/kc-5"
+        assert "sekrit" not in result.output
+
+    def test_options_reach_every_batch(self, tmp_path, monkeypatch):
+        result = self.run(
+            tmp_path, monkeypatch, "--batch", 2, "--no-all-or-none", "--notify-record-owners"
+        )
+        assert result.exit_code == 0, result.output
+        assert len(self.transport.requests) == 3
+        for request in self.transport.requests:
+            assert form_fields(request)["all_or_none"] == "false"
+            assert form_fields(request)["notify_record_owners"] == "true"
+            assert request.headers["Authorization"] == "Bearer sekrit"
+
+    def test_rejected_batch_exits_nonzero_and_sends_nothing_after_it(
+        self, tmp_path, monkeypatch
+    ):
+        result = self.run(
+            tmp_path, monkeypatch, "--batch", 2, transport=BatchTransport(replies={2: 400})
+        )
+        assert result.exit_code != 0
+        assert self.sent() == [["1", "2"], ["3", "4"]]
+        receipts = json.loads((tmp_path / "receipts.json").read_text())
+        assert receipts["1"]["record_url"] == "https://works.example.org/records/kc-1"
+        assert receipts["3"]["errors"]
+        assert "5" not in receipts
+
+    def test_network_failure_part_way_still_writes_earlier_receipts(
+        self, tmp_path, monkeypatch
+    ):
+        result = self.run(
+            tmp_path, monkeypatch, "--batch", 2,
+            transport=BatchTransport(
+                replies={2: requests.exceptions.ConnectionError("no route")}
+            ),
+        )
+        assert result.exit_code != 0
+        assert isinstance(result.exception, SystemExit)
+        assert "no route" in result.output
+        assert len(self.transport.requests) == 2
+        receipts = json.loads((tmp_path / "receipts.json").read_text())
+        assert sorted(receipts) == ["1", "2"]
+
+    def test_missing_api_key_posts_nothing(self, tmp_path, monkeypatch):
+        result = self.run(
+            tmp_path, monkeypatch, "--batch", 2, env={"KCWORKS_IMPORT_API_KEY": ""}
+        )
+        assert result.exit_code != 0
+        assert "KCWORKS_IMPORT_API_KEY" in result.output
+        assert self.transport.requests == []
+
+    @pytest.mark.parametrize("size", ["0", "-3", "lots"])
+    def test_batch_must_be_a_positive_whole_number(self, tmp_path, monkeypatch, size):
+        result = self.run(tmp_path, monkeypatch, "--batch", size)
+        assert result.exit_code != 0
+        assert self.transport.requests == []
+
+    def test_dry_run_posts_nothing_and_says_how_many_batches(self, tmp_path, monkeypatch):
+        result = self.run(
+            tmp_path, monkeypatch, "--batch", 2, "--dry-run",
+            env={"KCWORKS_IMPORT_API_KEY": ""},
+        )
+        assert result.exit_code == 0, result.output
+        assert self.transport.requests == []
+        assert "5 record" in result.output
+        assert "3 batch" in result.output
+
+    def test_debug_saves_a_replay_payload_per_batch(self, tmp_path, monkeypatch):
+        result = self.run(tmp_path, monkeypatch, "--batch", 2, "--debug")
+        assert result.exit_code == 0, result.output
+        payloads = sorted(tmp_path.glob("*.payload.json"))
+        sent = [form_fields(request)["metadata"] for request in self.transport.requests]
+        assert len(payloads) == 3
+        assert sorted(path.read_bytes() for path in payloads) == sorted(
+            metadata.encode("utf-8") for metadata in sent
+        )
+        for path in payloads:
+            assert f"metadata=<{path};" in result.stderr
+        assert "sekrit" not in result.stderr
+
+    def test_no_replay_payloads_without_debug(self, tmp_path, monkeypatch):
+        self.run(tmp_path, monkeypatch, "--batch", 2)
+        assert list(tmp_path.glob("*.payload.json")) == []

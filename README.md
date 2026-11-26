@@ -98,6 +98,29 @@ It takes the same options as `upload` except `--review-required` and
 both true, apply). The library also always sends `id_scheme=import-recid`
 and `no_updates=false`, which `upload` leaves to the server.
 
+`upload-client` can also split a large file across several requests:
+
+```sh
+uv run bepress-importer upload-client wrangled/fac_journ.json --collection-id <id> --batch 20
+```
+
+`--batch N` sends the records `N` at a time, in file order, one request per
+batch (the last batch carries whatever is left). Without it the whole file
+goes in one request.
+
+- Each batch is a separate import, so `--all-or-none` holds within a batch
+  and not across the file: batches that have already gone through stay
+  imported if a later one fails.
+- The run stops at the first batch the server rejects or that gets no
+  response, and the records after it are not sent. A batch that is only
+  partly imported (possible with `--no-all-or-none`) does not stop the run.
+- One line is printed per batch, then a summary. The receipts file covers
+  every batch that got a response, records that were never sent have no
+  entry in it, and the exit code is non-zero unless every batch was imported
+  in full.
+- With `--debug`, each batch saves its own replay payload
+  (`<file>.batch-N.payload.json`).
+
 ## Clearing a test import (hard delete)
 
 `hard-delete` permanently removes every record in a collection, through KC

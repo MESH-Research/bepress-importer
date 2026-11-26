@@ -68,15 +68,18 @@ class DebugReporter:
         self.emit("response body:")
         self.emit(_indent(_pretty_json(response.text)))
 
-    def show_replay(self, url: str, form: dict, metadata_file: str) -> None:
+    def show_replay(
+        self, url: str, form: dict, metadata_file: str, payload_file: str | None = None
+    ) -> None:
         """Save the exact metadata bytes sent, and print a curl command that replays them.
 
         curl sends a file verbatim, and the source file is formatted differently
         from what we transmit (so it is a different size), so the replay reads a
-        byte-identical copy written next to it as `<name>.payload.json`.
+        byte-identical copy written next to it as `<name>.payload.json`, or at
+        `payload_file` when one is given.
         """
         payload = form.get("metadata", "").encode("utf-8")
-        payload_file = Path(metadata_file).with_suffix(".payload.json")
+        payload_file = Path(payload_file or Path(metadata_file).with_suffix(".payload.json"))
         payload_file.write_bytes(payload)
         self.say(f"Wrote the metadata exactly as transmitted ({len(payload)} bytes) to "
                  f"{payload_file}; {metadata_file} is formatted differently, so replaying "
