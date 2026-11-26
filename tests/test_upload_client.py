@@ -504,32 +504,52 @@ class TestUploadBatchesViaClient:
         assert sorted(result.receipts, key=int) == ["1", "2", "3", "4", "5"]
         assert result.receipts["5"]["record_url"] == "https://works.example.org/records/kc-5"
 
-    def test_a_rejected_batch_stops_the_run(self):
+    def test_a_rejected_batch_does_not_stop_the_run(self):
         transport = BatchTransport(replies={2: 400})
         result = self.upload(transport, count=6, batch_size=2)
         assert [recids_in(request) for request in transport.requests] == [
-            ["1", "2"], ["3", "4"]
+            ["1", "2"], ["3", "4"], ["5", "6"]
         ]
         assert not result.success
         assert result.status_code == 400
 
-    def test_a_rejected_batch_keeps_earlier_receipts_and_its_own_errors(self):
+    def test_a_rejected_batch_leaves_the_other_batches_imported(self):
         result = self.upload(BatchTransport(replies={2: 400}), count=6, batch_size=2)
         assert result.receipts["1"]["record_url"] == "https://works.example.org/records/kc-1"
         assert result.receipts["2"]["record_id"] == "kc-2"
         assert result.receipts["3"]["errors"][0]["field"] == "title"
         assert result.receipts["4"]["record_url"] is None
-        assert "5" not in result.receipts and "6" not in result.receipts
+        assert result.receipts["5"]["record_id"] == "kc-5"
+        assert result.receipts["6"]["record_url"] == "https://works.example.org/records/kc-6"
 
-    def test_no_response_stops_the_run_and_keeps_earlier_receipts(self):
+    def test_errors_from_every_rejected_batch_are_collected(self):
+        transport = BatchTransport(replies={1: 400, 3: 400, 4: 400})
+        result = self.upload(transport, count=8, batch_size=2)
+        assert len(transport.requests) == 4
+        assert not result.success
+        failed = sorted(recid for recid, receipt in result.receipts.items()
+                        if receipt["errors"])
+        assert failed == ["1", "2", "5", "6", "7", "8"]
+        assert result.receipts["3"]["record_id"] == "kc-3"
+
+    def test_no_response_does_not_stop_the_run(self):
         transport = BatchTransport(
             replies={2: requests.exceptions.ConnectionError("no route")}
         )
         result = self.upload(transport, count=6, batch_size=2)
-        assert len(transport.requests) == 2
+        assert [recids_in(request) for request in transport.requests] == [
+            ["1", "2"], ["3", "4"], ["5", "6"]
+        ]
         assert not result.success
-        assert sorted(result.receipts) == ["1", "2"]
+        assert sorted(result.receipts) == ["1", "2", "5", "6"]
         assert "no route" in result.message
+
+    def test_every_batch_failing_is_not_success(self):
+        transport = BatchTransport(replies={1: 401, 2: 401, 3: 401})
+        result = self.upload(transport, count=5, batch_size=2)
+        assert len(transport.requests) == 3
+        assert not result.success
+        assert result.status_code == 401
 
     def test_a_partly_imported_batch_does_not_stop_the_run(self):
         transport = BatchTransport(replies={1: 207})
@@ -547,7 +567,9 @@ class TestUploadBatchesViaClient:
         self.upload(BatchTransport(replies={2: 400}), count=5, batch_size=2,
                     on_batch=reports.append)
         assert [(r.number, r.total, r.first, r.last, r.status_code, r.success)
-                for r in reports] == [(1, 3, 1, 2, 201, True), (2, 3, 3, 4, 400, False)]
+                for r in reports] == [
+            (1, 3, 1, 2, 201, True), (2, 3, 3, 4, 400, False), (3, 3, 5, 5, 201, True)
+        ]
 
     def test_reports_a_batch_that_got_no_response(self):
         reports = []
@@ -555,7 +577,7 @@ class TestUploadBatchesViaClient:
             BatchTransport(replies={1: requests.exceptions.ConnectionError("no route")}),
             count=3, batch_size=2, on_batch=reports.append,
         )
-        assert len(reports) == 1
+        assert len(reports) == 2
         assert reports[0].status_code is None
         assert not reports[0].success
         assert "no route" in reports[0].message
@@ -626,20 +648,33 @@ class TestUploadClientBatchOption:
             assert form_fields(request)["notify_record_owners"] == "true"
             assert request.headers["Authorization"] == "Bearer sekrit"
 
-    def test_rejected_batch_exits_nonzero_and_sends_nothing_after_it(
+    def test_rejected_batch_exits_nonzero_but_the_rest_are_still_sent(
         self, tmp_path, monkeypatch
     ):
         result = self.run(
             tmp_path, monkeypatch, "--batch", 2, transport=BatchTransport(replies={2: 400})
         )
         assert result.exit_code != 0
-        assert self.sent() == [["1", "2"], ["3", "4"]]
+        assert self.sent() == [["1", "2"], ["3", "4"], ["5"]]
         receipts = json.loads((tmp_path / "receipts.json").read_text())
         assert receipts["1"]["record_url"] == "https://works.example.org/records/kc-1"
         assert receipts["3"]["errors"]
-        assert "5" not in receipts
+        assert receipts["5"]["record_url"] == "https://works.example.org/records/kc-5"
 
-    def test_network_failure_part_way_still_writes_earlier_receipts(
+    def test_receipts_file_holds_the_errors_of_every_rejected_batch(
+        self, tmp_path, monkeypatch
+    ):
+        result = self.run(
+            tmp_path, monkeypatch, "--batch", 2,
+            transport=BatchTransport(replies={1: 400, 3: 400}),
+        )
+        assert result.exit_code != 0
+        receipts = json.loads((tmp_path / "receipts.json").read_text())
+        assert sorted(recid for recid, receipt in receipts.items() if receipt["errors"]) == [
+            "1", "2", "5"
+        ]
+
+    def test_network_failure_part_way_still_sends_and_records_the_rest(
         self, tmp_path, monkeypatch
     ):
         result = self.run(
@@ -651,9 +686,9 @@ class TestUploadClientBatchOption:
         assert result.exit_code != 0
         assert isinstance(result.exception, SystemExit)
         assert "no route" in result.output
-        assert len(self.transport.requests) == 2
+        assert len(self.transport.requests) == 3
         receipts = json.loads((tmp_path / "receipts.json").read_text())
-        assert sorted(receipts) == ["1", "2"]
+        assert sorted(receipts) == ["1", "2", "5"]
 
     def test_missing_api_key_posts_nothing(self, tmp_path, monkeypatch):
         result = self.run(

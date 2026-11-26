@@ -73,11 +73,6 @@ class BatchReport:
         return self.status_code == 201
 
     @property
-    def accepted(self) -> bool:
-        """Whether the server took the batch, in whole (201) or in part (207)."""
-        return self.status_code in (201, 207)
-
-    @property
     def outcome(self) -> str:
         if self.status_code is None:
             return f"no response: {self.message}"
@@ -118,9 +113,8 @@ def upload_batches_via_client(
     """POST one collection's records `batch_size` at a time, in file order.
 
     Each batch is its own request, so `all_or_none` holds within a batch, not
-    across the file. The run stops at the first batch the server rejects
-    outright or that gets no response; the records after it are not sent. A
-    partly imported batch (HTTP 207) does not stop it.
+    across the file. Every batch is sent whatever happened to the ones before
+    it, so one run collects the errors of every batch that fails.
 
     Returns one result for the whole run: receipts merged from every batch
     that got a response, success only if every batch returned 201, a message
@@ -168,8 +162,6 @@ def upload_batches_via_client(
         reports.append(report)
         if on_batch:
             on_batch(report)
-        if not report.accepted:
-            break
 
     troubled = next((report for report in reports if not report.success), None)
     return UploadResult(
@@ -181,18 +173,29 @@ def upload_batches_via_client(
 
 
 def _summarise(reports: list[BatchReport], record_count: int) -> str:
-    last = reports[-1]
     imported = sum(1 for report in reports if report.success)
-    parts = [f"{imported} of {last.total} batch(es) imported"]
-    partly = sum(1 for report in reports if report.status_code == 207)
+    parts = [f"{imported} of {len(reports)} batch(es) imported"]
+    partly = [report for report in reports if report.status_code == 207]
     if partly:
-        parts.append(f"{partly} partly imported (per-record errors are in the receipts)")
-    if not last.accepted:
-        parts.append(f"stopped at batch {last.number} ({last.outcome})")
-        unsent = record_count - last.last
-        if unsent:
-            parts.append(f"{unsent} later record(s) not sent")
+        parts.append(f"{len(partly)} partly imported "
+                     f"(batch {_ranges(report.number for report in partly)})")
+    failed = [report for report in reports if report.status_code not in (201, 207)]
+    if failed:
+        records = sum(report.last - report.first + 1 for report in failed)
+        parts.append(f"{len(failed)} failed (batch {_ranges(r.number for r in failed)}, "
+                     f"{records} of {record_count} record(s); first: {failed[0].outcome})")
     return "; ".join(parts)
+
+
+def _ranges(numbers) -> str:
+    """Batch numbers with runs collapsed: 1, 2, 3, 7 -> "1-3, 7"."""
+    runs: list[list[int]] = []
+    for number in numbers:
+        if runs and number == runs[-1][1] + 1:
+            runs[-1][1] = number
+        else:
+            runs.append([number, number])
+    return ", ".join(str(a) if a == b else f"{a}-{b}" for a, b in runs)
 
 
 def upload_collection_via_client(

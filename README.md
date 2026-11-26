@@ -111,13 +111,14 @@ goes in one request.
 - Each batch is a separate import, so `--all-or-none` holds within a batch
   and not across the file: batches that have already gone through stay
   imported if a later one fails.
-- The run stops at the first batch the server rejects or that gets no
-  response, and the records after it are not sent. A batch that is only
-  partly imported (possible with `--no-all-or-none`) does not stop the run.
+- Every batch is sent whatever happened to the ones before it, so a single
+  run surfaces the validation errors of every batch that fails. A rejected
+  batch, or one that gets no response, leaves gaps: the other batches are
+  still imported.
 - One line is printed per batch, then a summary. The receipts file covers
-  every batch that got a response, records that were never sent have no
-  entry in it, and the exit code is non-zero unless every batch was imported
-  in full.
+  every batch that got a response (a batch with no response leaves no entries
+  for its records), and the exit code is non-zero unless every batch was
+  imported in full.
 - With `--debug`, each batch saves its own replay payload
   (`<file>.batch-N.payload.json`).
 
