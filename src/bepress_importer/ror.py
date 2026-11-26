@@ -78,8 +78,11 @@ def best_match(text: str, lookup: RorLookup) -> tuple[RorCandidate, str] | None:
     "name and place"); None when no result has all of the text's words.
 
     A result is taken when every word of the text is in one of its official
-    names, or in that name and its place together. Aliases and acronyms do
-    not count: several organisations can share one ("NC State"). Among
+    names, or when the text is that whole name plus words from its place
+    ("X University - Fort Collins"). A place may not stand in for part of the
+    name: "NC State" is not Appalachian State University, though "State" is
+    in its name and NC is where it is. Aliases and acronyms do not count:
+    several organisations can share one ("NC State"). Among
     results that qualify, a name holding every word beats one helped by its
     place, and then the name with the fewest words the text lacks wins, so
     "Miami University" is not taken for the University of Miami. Two results
@@ -96,8 +99,8 @@ def best_match(text: str, lookup: RorLookup) -> tuple[RorCandidate, str] | None:
             name_words = set(_words(name))
             if wanted <= name_words:
                 fit = (0, len(name_words - wanted))
-            elif wanted & name_words and wanted <= name_words | place_words:
-                fit = (1, len(name_words - wanted))
+            elif name_words <= wanted <= name_words | place_words:
+                fit = (1, 0)  # the whole name, followed by where it is
             else:
                 continue
             best = fit if best is None else min(best, fit)

@@ -222,6 +222,16 @@ class TestBestMatch:
     def test_a_text_with_a_word_no_result_has_is_left_alone(self, text, payload):
         assert match_for(text, payload) is None
 
+    def test_a_place_cannot_stand_in_for_part_of_the_name(self):
+        # "State" is in the name and "NC" is the region code — but the text
+        # is not this organisation's name followed by where it is
+        payload = response(
+            item("051m4vc48", "Appalachian State University", 0.86,
+                 place=("Boone", "North Carolina", "NC", *US))
+        )
+        assert match_for("NC State", payload) is None
+        assert match_for("Appalachian State University, Boone, NC", payload) == "051m4vc48"
+
     def test_a_place_alone_is_not_a_match(self):
         assert match_for("Fort Collins", COLORADO) is None
 
