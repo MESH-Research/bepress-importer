@@ -180,7 +180,7 @@ def _use_ror_ids(
                 reason = (
                     f"affiliation replaced by its ROR id — matched to "
                     f"{match.name or match.ror_id} by the ROR API (its chosen match, "
-                    f"score {match.score:g})"
+                    f"score {match.score:g}; the text is the organisation's official name)"
                 )
             changes.append(
                 ValueChange(

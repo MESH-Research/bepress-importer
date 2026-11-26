@@ -4,8 +4,11 @@ in the ROR API with an on-disk cache so no text is ever looked up twice."""
 from __future__ import annotations
 
 import datetime
+import json
+import re
 import sqlite3
 import time
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +21,7 @@ _TIMEOUT = 30
 _MAX_WAIT = 300
 # consecutive failed lookups after which the API is left alone for the run
 _GIVE_UP_AFTER = 3
+_CACHE_LAYOUT = 2
 
 
 class RorUnavailable(Exception):
@@ -37,6 +41,10 @@ class RorLookup:
     name: str | None = None
     score: float | None = None
     contested: bool = False
+    # the chosen organisation's official names (display name and labels in
+    # other languages — not aliases or acronyms) and where it is
+    names: tuple[str, ...] = ()
+    places: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,17 +76,91 @@ def read_response(payload: dict) -> RorLookup:
     contested = any(
         entry is not chosen[0] and (entry.get("score") or 0) >= (score or 0) for entry in items
     )
-    return RorLookup(ror_id=ror_id, name=name, score=score, contested=contested)
+    official = tuple(
+        n["value"]
+        for n in names
+        if n.get("value") and {"ror_display", "label"} & set(n.get("types") or [])
+    )
+    places = []
+    for location in organization.get("locations") or []:
+        details = location.get("geonames_details") or {}
+        for key in (
+            "name", "country_subdivision_name", "country_subdivision_code",
+            "country_name", "country_code",
+        ):
+            if details.get(key) and details[key] not in places:
+                places.append(details[key])
+    return RorLookup(
+        ror_id=ror_id, name=name, score=score, contested=contested,
+        names=official, places=tuple(places),
+    )
 
 
-def is_certain(lookup: RorLookup, min_score: float = 1.0) -> bool:
-    """Whether the API's answer is safe to use without a person checking it:
-    it chose an organisation, at full score, and nothing else scored as high."""
+def is_certain(lookup: RorLookup, text: str, min_score: float = 1.0) -> bool:
+    """Whether the API's answer for `text` is safe to use without a person
+    checking it.
+
+    The API must have chosen an organisation, at full score, with nothing
+    else scoring as high — and the text must be that organisation's own
+    official name (see names_the_organisation). The API's choice alone is not
+    enough: it also chooses on aliases and shared words, which is how
+    "NC State" comes back as North Central State College.
+    """
     return (
         lookup.ror_id is not None
         and lookup.score is not None
         and lookup.score >= min_score
         and not lookup.contested
+        and names_the_organisation(text, lookup)
+    )
+
+
+# words that may follow an organisation's name without changing which
+# organisation is meant
+_FILLERS = {"at", "in", "the", "main", "campus"}
+_PLACE_SYNONYMS = {
+    "US": ("USA", "U.S.A.", "U.S.", "United States of America"),
+    "GB": ("UK", "U.K.", "Great Britain", "England", "Scotland", "Wales"),
+}
+
+
+def _words(text: str) -> list[str]:
+    """A name as comparable words: no case, accents, punctuation or leading article."""
+    plain = unicodedata.normalize("NFKD", text)
+    plain = "".join(ch for ch in plain if not unicodedata.combining(ch)).casefold()
+    plain = plain.replace("&", " and ")
+    words = re.sub(r"[^a-z0-9]+", " ", plain).split()
+    return words[1:] if words[:1] == ["the"] else words
+
+
+def names_the_organisation(text: str, lookup: RorLookup) -> bool:
+    """Whether the text is one of the organisation's official names — alone,
+    or followed only by where the organisation is ("X University - Fort
+    Collins", "X University, Japan") — rather than something that resembles it.
+    """
+    words = _words(text)
+    places = [*lookup.places]
+    for code, synonyms in _PLACE_SYNONYMS.items():
+        if code in lookup.places:
+            places.extend(synonyms)
+    place_words = [_words(place) for place in places]
+    for name in lookup.names:
+        name_words = _words(name)
+        if not name_words or words[: len(name_words)] != name_words:
+            continue
+        rest = [word for word in words[len(name_words):] if word not in _FILLERS]
+        if _only_places(rest, place_words):
+            return True
+    return False
+
+
+def _only_places(words: list[str], places: list[list[str]]) -> bool:
+    """Whether the words are nothing but a run of the given place names."""
+    if not words:
+        return True
+    return any(
+        place and words[: len(place)] == place and _only_places(words[len(place):], places)
+        for place in places
     )
 
 
@@ -98,34 +180,46 @@ class RorCache:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path)
+        if self._db.execute("PRAGMA user_version").fetchone()[0] != _CACHE_LAYOUT:
+            # a cache in another layout: its answers can simply be asked for again
+            self._db.execute("DROP TABLE IF EXISTS affiliation_lookup")
+            self._db.execute(f"PRAGMA user_version = {_CACHE_LAYOUT}")
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS affiliation_lookup ("
             " query TEXT PRIMARY KEY,"  # the affiliation text, case and spacing folded
             " asked TEXT NOT NULL,"  # the text as it was put to the API
             " ror_id TEXT,"  # NULL: the API chose no organisation
-            " name TEXT,"
+            " name TEXT,"  # its display name
             " score REAL,"
-            " contested INTEGER NOT NULL,"
+            " contested INTEGER NOT NULL,"  # another organisation scored as high
+            " names TEXT NOT NULL,"  # JSON list: its official names
+            " places TEXT NOT NULL,"  # JSON list: its city, region and country
             " fetched_at TEXT NOT NULL)"
         )
         self._db.commit()
 
     def get(self, text: str) -> RorLookup | None:
         row = self._db.execute(
-            "SELECT ror_id, name, score, contested FROM affiliation_lookup WHERE query = ?",
+            "SELECT ror_id, name, score, contested, names, places "
+            "FROM affiliation_lookup WHERE query = ?",
             (_key(text),),
         ).fetchone()
         if row is None:
             return None
-        return RorLookup(ror_id=row[0], name=row[1], score=row[2], contested=bool(row[3]))
+        return RorLookup(
+            ror_id=row[0], name=row[1], score=row[2], contested=bool(row[3]),
+            names=tuple(json.loads(row[4])), places=tuple(json.loads(row[5])),
+        )
 
     def put(self, text: str, lookup: RorLookup) -> None:
         fetched_at = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
         self._db.execute(
-            "INSERT OR REPLACE INTO affiliation_lookup VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO affiliation_lookup VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _key(text), " ".join(text.split()), lookup.ror_id, lookup.name,
-                lookup.score, int(lookup.contested), fetched_at,
+                lookup.score, int(lookup.contested),
+                json.dumps(list(lookup.names), ensure_ascii=False),
+                json.dumps(list(lookup.places), ensure_ascii=False), fetched_at,
             ),
         )
         self._db.commit()
@@ -201,7 +295,7 @@ class RorResolver:
         lookup = self.cache.get(text) if self.cache else None
         if lookup is None:
             lookup = self._ask(text)
-        if lookup is None or not is_certain(lookup, self.min_score):
+        if lookup is None or not is_certain(lookup, text, self.min_score):
             return None
         return RorMatch(
             ror_id=lookup.ror_id, name=lookup.name, evidence="api", score=lookup.score

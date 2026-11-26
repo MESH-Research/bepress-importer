@@ -162,6 +162,8 @@ def describe_sheet(
                 builders["creators"] += (
                     ", or when the ROR API's affiliation matcher returns a chosen, "
                     f"uncontested match scoring at least {defaults.affiliations.min_score:g} "
+                    "and the affiliation text is that organisation's official name "
+                    "(optionally followed by its own city, region or country) "
                     "— every other affiliation stays as text"
                 )
     if sheet.contributors:

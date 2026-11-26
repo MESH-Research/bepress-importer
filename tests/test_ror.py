@@ -18,7 +18,9 @@ from bepress_importer.ror import (
 BUCKNELL = {"00fc1qt65": ["Bucknell University", "Bucknell", "Bucknell U", "Bucknell Univ"]}
 
 
-def item(ror_id, name, score, chosen=False):
+def item(ror_id, name, score, chosen=False, aliases=(), labels=(), acronyms=(),
+         place=("State College", "Pennsylvania", "PA", "United States", "US")):
+    city, region, region_code, country, country_code = place
     return {
         "chosen": chosen,
         "matching_type": "SINGLE SEARCH",
@@ -28,8 +30,20 @@ def item(ror_id, name, score, chosen=False):
             "id": f"https://ror.org/{ror_id}",
             "status": "active",
             "names": [
-                {"lang": "en", "types": ["alias"], "value": name + " (alias)"},
+                *({"lang": "en", "types": ["alias"], "value": alias} for alias in aliases),
+                *({"lang": None, "types": ["acronym"], "value": a} for a in acronyms),
                 {"lang": "en", "types": ["ror_display", "label"], "value": name},
+                *({"lang": "es", "types": ["label"], "value": label} for label in labels),
+            ],
+            "locations": [
+                {
+                    "geonames_id": 1,
+                    "geonames_details": {
+                        "name": city, "country_subdivision_name": region,
+                        "country_subdivision_code": region_code,
+                        "country_name": country, "country_code": country_code,
+                    },
+                }
             ],
         },
     }
@@ -40,9 +54,23 @@ def response(*items):
 
 
 PENN_STATE = response(
-    item("04p491231", "Pennsylvania State University", 1.0, chosen=True),
+    item(
+        "04p491231", "Pennsylvania State University", 1.0, chosen=True,
+        aliases=("Penn State",), acronyms=("PSU",),
+        labels=("Universidad Estatal de Pensilvania",),
+    ),
     item("035h06756", "Magtymguly Turkmen State University", 0.95),
 )
+PENN_STATE_LOOKUP = RorLookup(
+    ror_id="04p491231", name="Pennsylvania State University", score=1.0, contested=False,
+    names=("Pennsylvania State University", "Universidad Estatal de Pensilvania"),
+    places=("State College", "Pennsylvania", "PA", "United States", "US"),
+)
+
+
+def chosen(name, text_place=("Fort Collins", "Colorado", "CO", "United States", "US"), **more):
+    """The lookup for an API answer choosing one organisation at full score."""
+    return read_response(response(item("0xx", name, 1.0, chosen=True, place=text_place, **more)))
 NO_CHOICE = response(item("03hamhx47", "University of Massachusetts Lowell", 0.96))
 TIED = response(
     item("00jkdhd30", "Saint Mary's University", 1.0),
@@ -53,9 +81,20 @@ NOTHING = response()
 
 class TestReadResponse:
     def test_the_chosen_organisation_is_reported_with_its_bare_id_and_display_name(self):
-        assert read_response(PENN_STATE) == RorLookup(
-            ror_id="04p491231", name="Pennsylvania State University", score=1.0, contested=False
+        lookup = read_response(PENN_STATE)
+        assert (lookup.ror_id, lookup.name, lookup.score, lookup.contested) == (
+            "04p491231", "Pennsylvania State University", 1.0, False
         )
+
+    def test_its_official_names_are_kept_but_not_its_aliases_or_acronyms(self):
+        assert read_response(PENN_STATE).names == (
+            "Pennsylvania State University", "Universidad Estatal de Pensilvania",
+        )
+
+    def test_where_it_is_is_kept(self):
+        assert set(read_response(PENN_STATE).places) == {
+            "State College", "Pennsylvania", "PA", "United States", "US"
+        }
 
     def test_a_high_score_the_api_did_not_choose_is_no_match(self):
         assert read_response(NO_CHOICE).ror_id is None
@@ -72,21 +111,86 @@ class TestReadResponse:
 
 
 class TestIsCertain:
-    def test_a_chosen_uncontested_full_score_match_is_certain(self):
-        assert is_certain(read_response(PENN_STATE))
+    """Certain means: ROR chose the organisation, at full score, uncontested,
+    AND the text is that organisation's own official name."""
+
+    def test_the_official_name_chosen_at_full_score_is_certain(self):
+        assert is_certain(read_response(PENN_STATE), "Pennsylvania State University")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "The Pennsylvania State University", "pennsylvania state university",
+            "  Pennsylvania  State University. ", "Universidad Estatal de Pensilvania",
+        ],
+    )
+    def test_an_article_case_or_another_language_do_not_matter(self, text):
+        assert is_certain(read_response(PENN_STATE), text)
+
+    @pytest.mark.parametrize(
+        "name, text",
+        [
+            ("Bauhaus-Universität Weimar", "Bauhaus Universitat Weimar"),
+            ("Texas A&M University", "Texas A & M University"),
+            ("Université Laval", "Universite Laval"),
+        ],
+    )
+    def test_accents_and_punctuation_do_not_matter(self, name, text):
+        assert is_certain(chosen(name), text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Colorado State University - Fort Collins", "Colorado State University, Colorado",
+            "Colorado State University, Fort Collins, CO", "Colorado State University, USA",
+            "Colorado State University-Fort Collins", "Colorado State University at Fort Collins",
+            "Colorado State University - Main Campus", "Colorado State University, United States",
+        ],
+    )
+    def test_the_name_followed_by_where_the_organisation_is_stays_certain(self, text):
+        assert is_certain(chosen("Colorado State University"), text)
+
+    @pytest.mark.parametrize(
+        "name, text",
+        [
+            # a text ROR matched on an alias: "NC State" is also what people
+            # call North Carolina State University
+            ("North Central State College", "NC State"),
+            ("Phillips Exeter Academy", "Exeter"),
+            ("Pennsylvania State University", "Penn State University"),
+            # a different campus or a second institution after the name
+            ("University of Minnesota", "University of Minnesota - Duluth"),
+            ("Massachusetts General Hospital",
+             "Massachusetts General Hospital and Harvard Medical School"),
+            ("Massachusetts General Hospital",
+             "Massachusetts General Hospital Institute of Health"),
+            # a text that merely shares words with the organisation chosen
+            ("Digital Research Alliance of Canada", "Shamokin Creek Restoration Alliance"),
+            ("Research Institute of Japan", "Hanzaki Research Institute of Japan"),
+            ("Indian Institute of Technology Delhi", "IIIT Delhi"),
+            ("Colorado School of Mines", "TRIUMF / Colorado School of Mines"),
+        ],
+    )
+    def test_a_text_that_is_not_the_organisations_official_name_is_not_certain(self, name, text):
+        aliases = ("NC State", "Exeter", "Penn State")
+        assert not is_certain(chosen(name, aliases=aliases), text)
 
     @pytest.mark.parametrize("payload", [NO_CHOICE, TIED, NOTHING])
     def test_no_chosen_organisation_is_never_certain(self, payload):
-        assert not is_certain(read_response(payload))
+        assert not is_certain(read_response(payload), "Saint Mary's University")
 
     def test_a_chosen_match_below_full_score_is_not_certain(self):
         payload = response(item("04p491231", "Pennsylvania State University", 0.97, chosen=True))
-        assert not is_certain(read_response(payload))
-        assert is_certain(read_response(payload), min_score=0.95)
+        text = "Pennsylvania State University"
+        assert not is_certain(read_response(payload), text)
+        assert is_certain(read_response(payload), text, min_score=0.95)
 
     def test_a_contested_choice_is_not_certain(self):
-        lookup = RorLookup(ror_id="058w5nk68", name="Union College", score=1.0, contested=True)
-        assert not is_certain(lookup)
+        lookup = RorLookup(
+            ror_id="058w5nk68", name="Union College", score=1.0, contested=True,
+            names=("Union College",),
+        )
+        assert not is_certain(lookup, "Union College")
 
 
 class TestRorCache:
@@ -95,9 +199,8 @@ class TestRorCache:
 
     def test_a_stored_answer_comes_back(self, tmp_path):
         cache = RorCache(tmp_path / "ror.sqlite3")
-        lookup = RorLookup("04p491231", "Pennsylvania State University", 1.0, False)
-        cache.put("Penn State University", lookup)
-        assert cache.get("Penn State University") == lookup
+        cache.put("Pennsylvania State University", PENN_STATE_LOOKUP)
+        assert cache.get("Pennsylvania State University") == PENN_STATE_LOOKUP
 
     def test_answers_survive_on_disk(self, tmp_path):
         path = tmp_path / "ror.sqlite3"
@@ -121,6 +224,20 @@ class TestRorCache:
         cache.put("X", RorLookup())
         cache.put("X", RorLookup("03kgj4539", "TRIUMF", 1.0, False))
         assert cache.get("X").ror_id == "03kgj4539"
+
+    def test_a_cache_file_in_an_older_layout_is_started_afresh(self, tmp_path):
+        import sqlite3
+
+        path = tmp_path / "ror.sqlite3"
+        old = sqlite3.connect(path)
+        old.execute("CREATE TABLE affiliation_lookup (query TEXT PRIMARY KEY, ror_id TEXT)")
+        old.execute("INSERT INTO affiliation_lookup VALUES ('triumf', '03kgj4539')")
+        old.commit()
+        old.close()
+        cache = RorCache(path)
+        assert cache.get("TRIUMF") is None
+        cache.put("TRIUMF", PENN_STATE_LOOKUP)
+        assert cache.get("TRIUMF") == PENN_STATE_LOOKUP
 
     def test_the_cache_file_is_created_in_a_missing_directory(self, tmp_path):
         cache = RorCache(tmp_path / "deep" / "er" / "ror.sqlite3")
@@ -238,8 +355,8 @@ class TestKnownInstitutions:
 
 class TestResolver:
     def test_a_certain_api_match_is_used(self):
-        resolver = RorResolver(fetch=api({"Penn State University": PENN_STATE}))
-        assert resolver.resolve("Penn State University") == RorMatch(
+        resolver = RorResolver(fetch=api({"The Pennsylvania State University": PENN_STATE}))
+        assert resolver.resolve("The Pennsylvania State University") == RorMatch(
             ror_id="04p491231", name="Pennsylvania State University", evidence="api", score=1.0
         )
 
@@ -249,24 +366,25 @@ class TestResolver:
 
     def test_the_certainty_threshold_is_the_resolvers(self):
         payload = response(item("04p491231", "Pennsylvania State University", 0.97, chosen=True))
-        assert RorResolver(fetch=api({"x": payload})).resolve("x") is None
-        assert RorResolver(fetch=api({"x": payload}), min_score=0.95).resolve("x") is not None
+        text = "Pennsylvania State University"
+        assert RorResolver(fetch=api({text: payload})).resolve(text) is None
+        assert RorResolver(fetch=api({text: payload}), min_score=0.95).resolve(text) is not None
 
     def test_without_a_fetch_only_known_and_cached_answers_are_given(self, tmp_path):
         cache = RorCache(tmp_path / "ror.sqlite3")
-        cache.put("TRIUMF", RorLookup("03kgj4539", "TRIUMF", 1.0, False))
+        cache.put("TRIUMF", RorLookup("03kgj4539", "TRIUMF", 1.0, False, names=("TRIUMF",)))
         resolver = RorResolver(known=BUCKNELL, cache=cache)
         assert resolver.resolve("TRIUMF").ror_id == "03kgj4539"
         assert resolver.resolve("Bucknell").ror_id == "00fc1qt65"
-        assert resolver.resolve("Penn State University") is None
+        assert resolver.resolve("The Pennsylvania State University") is None
 
     def test_a_text_looked_up_once_is_answered_from_the_cache_afterwards(self, tmp_path):
         path = tmp_path / "ror.sqlite3"
-        first = RorResolver(cache=RorCache(path), fetch=api({"Penn State University": PENN_STATE}))
-        assert first.resolve("Penn State University").ror_id == "04p491231"
+        first = RorResolver(cache=RorCache(path), fetch=api({"The Pennsylvania State University": PENN_STATE}))
+        assert first.resolve("The Pennsylvania State University").ror_id == "04p491231"
         later = RorResolver(cache=RorCache(path), fetch=never)
-        assert later.resolve("Penn State University").ror_id == "04p491231"
-        assert later.resolve("Penn State University").evidence == "api"
+        assert later.resolve("The Pennsylvania State University").ror_id == "04p491231"
+        assert later.resolve("The Pennsylvania State University").evidence == "api"
 
     def test_a_text_without_a_match_is_not_asked_about_again(self, tmp_path):
         path = tmp_path / "ror.sqlite3"
@@ -280,16 +398,17 @@ class TestResolver:
     def test_a_cached_answer_is_judged_by_the_current_threshold(self, tmp_path):
         path = tmp_path / "ror.sqlite3"
         payload = response(item("04p491231", "Pennsylvania State University", 0.97, chosen=True))
-        assert RorResolver(cache=RorCache(path), fetch=api({"x": payload})).resolve("x") is None
-        assert RorResolver(cache=RorCache(path), fetch=never, min_score=0.95).resolve("x")
+        text = "Pennsylvania State University"
+        assert RorResolver(cache=RorCache(path), fetch=api({text: payload})).resolve(text) is None
+        assert RorResolver(cache=RorCache(path), fetch=never, min_score=0.95).resolve(text)
 
     def test_an_unavailable_api_leaves_the_text_alone_and_is_remembered_as_a_failure(self):
         def down(text):
             raise RorUnavailable("down")
 
         resolver = RorResolver(fetch=down)
-        assert resolver.resolve("Penn State University") is None
-        assert resolver.failures == ["Penn State University"]
+        assert resolver.resolve("The Pennsylvania State University") is None
+        assert resolver.failures == ["The Pennsylvania State University"]
 
     def test_a_failed_lookup_is_not_cached_as_an_answer(self, tmp_path):
         path = tmp_path / "ror.sqlite3"
@@ -297,9 +416,9 @@ class TestResolver:
         def down(text):
             raise RorUnavailable("down")
 
-        RorResolver(cache=RorCache(path), fetch=down).resolve("Penn State University")
-        again = RorResolver(cache=RorCache(path), fetch=api({"Penn State University": PENN_STATE}))
-        assert again.resolve("Penn State University").ror_id == "04p491231"
+        RorResolver(cache=RorCache(path), fetch=down).resolve("The Pennsylvania State University")
+        again = RorResolver(cache=RorCache(path), fetch=api({"The Pennsylvania State University": PENN_STATE}))
+        assert again.resolve("The Pennsylvania State University").ror_id == "04p491231"
 
     def test_an_api_that_keeps_failing_is_given_up_on_for_the_rest_of_the_run(self):
         state = {"failures_left": 3}
@@ -317,3 +436,9 @@ class TestResolver:
 
     def test_empty_text_is_never_looked_up(self):
         assert RorResolver(fetch=never).resolve("   ") is None
+
+    def test_a_text_the_api_matched_on_an_alias_is_left_alone(self):
+        payload = response(
+            item("04b6b6f76", "North Central State College", 1.0, chosen=True, aliases=("NC State",))
+        )
+        assert RorResolver(fetch=api({"NC State": payload})).resolve("NC State") is None
