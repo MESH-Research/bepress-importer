@@ -6,6 +6,9 @@ single cells, so they live outside the scalar transform registry.
 
 from __future__ import annotations
 
+import json
+import re
+
 from bepress_importer.profiles import (
     AuthorColumns,
     ContributorColumns,
@@ -20,10 +23,36 @@ def _get(row: dict[str, str], column: str | None) -> str:
     return row.get(column, "").strip() if column else ""
 
 
+_EMAIL_RE = re.compile(r"^\S+@\S+\.\S+$")
+
+
+def _corporate_authors(row: dict[str, str], column: str | None) -> dict[int, str]:
+    """{position: name} for the corporate authors in a JSON author-list cell."""
+    try:
+        entries = json.loads(_get(row, column)) if column else []
+    except ValueError:
+        return {}
+    if not isinstance(entries, list):
+        return {}
+    return {
+        position: name.strip()
+        for position, entry in enumerate(entries, start=1)
+        if isinstance(entry, dict)
+        and isinstance(name := entry.get("CORPORATE_AUTHOR"), str)
+        and name.strip()
+    }
+
+
 def build_creators(row: dict[str, str], config: AuthorColumns) -> list[dict]:
-    """authorN_{fname,mname,lname,suffix,institution,is_corporate} columns → creators list."""
+    """authorN_{fname,mname,lname,suffix,institution,is_corporate} columns → creators list.
+
+    When config.json_column is set, corporate authors recorded only in that
+    JSON author list (their numbered columns are blank) are slotted in at
+    their position.
+    """
     creators = []
-    for n in range(1, config.max + 1):
+    corporate_at = _corporate_authors(row, config.json_column)
+    for n in range(1, max(config.max, *corporate_at, 0) + 1):
         prefix = f"{config.prefix}{n}_"
         fname = _get(row, prefix + "fname")
         mname = _get(row, prefix + "mname")
@@ -33,7 +62,16 @@ def build_creators(row: dict[str, str], config: AuthorColumns) -> list[dict]:
         corporate = _get(row, prefix + "is_corporate").lower() in _TRUTHY
 
         if not (fname or lname):
+            if n in corporate_at:
+                creators.append(
+                    {
+                        "person_or_org": {"type": "organizational", "name": corporate_at[n]},
+                        "role": {"id": "author"},
+                    }
+                )
             continue
+        if _EMAIL_RE.match(institution):
+            institution = ""  # an address typed into the institution cell
 
         if corporate:
             person_or_org: dict = {"type": "organizational", "name": lname or fname}
@@ -80,19 +118,36 @@ def build_contributors(row: dict[str, str], config: ContributorColumns) -> list[
 def build_journal(row: dict[str, str], config: JournalMapping) -> dict | None:
     """Journal columns → the "journal:journal" custom field, or None if all empty."""
     result = {}
-    for key, column in (
-        ("title", config.title),
-        ("volume", config.volume),
-        ("issue", config.issue),
-        ("issn", config.issn),
-    ):
+    for key, column in (("title", config.title), ("issn", config.issn)):
         value = _get(row, column)
         if value:
             result[key] = value
-    first, last = _get(row, config.pages_first), _get(row, config.pages_last)
+    for key, column in (("volume", config.volume), ("issue", config.issue)):
+        value = _get(row, column)
+        if value and _plausible_number(value):
+            result[key] = value
+    first, last = (
+        value if _plausible_page(value) else ""
+        for value in (_get(row, config.pages_first), _get(row, config.pages_last))
+    )
     if first:
         result["pages"] = f"{first}-{last}" if last else first
     return result or None
+
+
+_ROMAN_RE = re.compile(r"^[ivxlcdm]+$", re.IGNORECASE)
+
+
+def _plausible_page(value: str) -> bool:
+    """A page, a page range or an article number — not a link, a remark or a paragraph."""
+    if len(value) > 30 or "://" in value:
+        return False
+    return any(ch.isdigit() for ch in value) or bool(_ROMAN_RE.match(value))
+
+
+def _plausible_number(value: str) -> bool:
+    """A volume or issue designation — not a note about online publication."""
+    return len(value) <= 25 and "://" not in value and "doi" not in value.lower()
 
 
 def build_imprint(row: dict[str, str], config: ImprintMapping) -> dict | None:
@@ -108,3 +163,22 @@ def build_imprint(row: dict[str, str], config: ImprintMapping) -> dict | None:
         if value:
             result[key] = value
     return result or None
+
+
+def implausible_journal_values(
+    row: dict[str, str], config: JournalMapping
+) -> list[tuple[str, str]]:
+    """(column, value) for journal cells that cannot be what the column says:
+    a paragraph or a link in a page cell, a note in place of a volume number.
+    build_journal leaves these out."""
+    found = []
+    for column, plausible in (
+        (config.volume, _plausible_number),
+        (config.issue, _plausible_number),
+        (config.pages_first, _plausible_page),
+        (config.pages_last, _plausible_page),
+    ):
+        value = _get(row, column)
+        if value and not plausible(value):
+            found.append((column, value))
+    return found

@@ -113,6 +113,27 @@ def _find_url(value: str) -> str | None:
     return match.group().rstrip(".,;") if match else None
 
 
+def _unproxy(link: str, proxies: list[str]) -> str:
+    """The link with a library proxy removed from its host, so that it works
+    for readers outside the institution.
+
+    "www.jstor.org.ezproxy.example.edu" and the hyphenated form
+    "www-jstor-org.ezproxy.example.edu" both become "www.jstor.org".
+    """
+    match = re.match(r"^(https?://)([^/?#]+)(.*)$", link, re.IGNORECASE)
+    if not match:
+        return link
+    scheme, host, rest = match.groups()
+    for proxy in proxies:
+        suffix = "." + proxy.lower()
+        if host.lower().endswith(suffix):
+            host = host[: -len(suffix)]
+            if "." not in host:
+                host = host.replace("-", ".")
+            return scheme + host + rest
+    return link
+
+
 @transform("identifier")
 def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
     """Value → {"identifier": ..., "scheme": args["scheme"]}.
@@ -124,7 +145,8 @@ def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
     args.scheme = "url": only real http(s) links are kept. With
     args.doi_references a link to a DOI resolver (or a "doi:" label) yields a
     doi identifier instead; with args.find_url the first link in a messy cell
-    is recovered.
+    is recovered; args.unproxy lists library-proxy domains to strip from the
+    link's host.
     """
     if "split" in args:
         value = value.split(args["split"])[0].strip()
@@ -154,6 +176,7 @@ def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
             value = _find_url(value) or ""
         if not _URL_RE.match(value):
             return None
+        value = _unproxy(value, args.get("unproxy", []))
     return {"identifier": value, "scheme": args["scheme"]}
 
 
@@ -161,11 +184,14 @@ def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
 def split(value: str, row: dict[str, str], args: dict) -> object | None:
     """Delimited string → list of stripped non-empty items (or re-joined string).
 
+    args.sep is one separator or a list of them (split on any).
     args.also_columns merges values from sibling columns into the list.
     """
     sep = args.get("sep", ",")
+    separators = sep if isinstance(sep, list) else [sep]
+    splitter = re.compile("|".join(re.escape(separator) for separator in separators))
     raw_parts = [value] + [row.get(col, "") for col in args.get("also_columns", [])]
-    items = [item.strip() for part in raw_parts for item in part.split(sep)]
+    items = [item.strip() for part in raw_parts for item in splitter.split(part)]
     items = [item for item in items if item]
     if not items:
         return None
@@ -346,3 +372,19 @@ def misplaced_description(value: str, row: dict[str, str], args: dict) -> object
     if any(row.get(column, "").strip() for column in args.get("unless_columns", [])):
         return None
     return text
+
+
+_ANY_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+_INLINE_TAG_RE = re.compile(
+    r"</?(?:em|i|b|u|strong|sub|sup|span|small|font|a|cite|code)\b[^>]*>", re.IGNORECASE
+)
+
+
+@transform("plain_text")
+def plain_text(value: str, row: dict[str, str], args: dict) -> object | None:
+    """A one-line plain-text value (a title): markup removed without breaking
+    words apart ("H<sub>2</sub>O" → "H2O"), entities unescaped, runs of
+    whitespace collapsed."""
+    text = _INLINE_TAG_RE.sub("", value)
+    text = html.unescape(_ANY_TAG_RE.sub(" ", text))
+    return " ".join(text.split()) or None

@@ -510,3 +510,77 @@ class TestMisplacedDescription:
     def test_html_is_removed(self):
         result = apply("misplaced_description", f"<p>{ISSUE_BLURB}</p>", row={}, args={})
         assert result == ISSUE_BLURB
+
+
+class TestPlainText:
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("Characterizations of A<sub>2</sub> Matrix Power Weights",
+             "Characterizations of A2 Matrix Power Weights"),
+            ("Measuring H<sub>2</sub>S<sub>(g)</sub> Concentrations",
+             "Measuring H2S(g) Concentrations"),
+            ("pathogen in Nearctic <em>Myotis lucifugus</em> and Palearctic bats",
+             "pathogen in Nearctic Myotis lucifugus and Palearctic bats"),
+            ("<em>Baptisia australis</em> var. <em>australis</em> in Pennsylvania",
+             "Baptisia australis var. australis in Pennsylvania"),
+            ("Visions of Egypt in Midrash:  Pharaoh’s Birthday", "Visions of Egypt in Midrash: Pharaoh’s Birthday"),
+            ("Intelligent Souls?  : Feminist Orientalism", "Intelligent Souls? : Feminist Orientalism"),
+            ("<p>Part one</p><p>Part two</p>", "Part one Part two"),
+            ("First line<br/>second line", "First line second line"),
+            ("Research &amp; Practice", "Research & Practice"),
+            ("  padded \n title ", "padded title"),
+        ],
+    )
+    def test_markup_and_stray_whitespace_are_removed(self, raw, expected):
+        assert apply("plain_text", raw) == expected
+
+    @pytest.mark.parametrize(
+        "title",
+        ["Genetic Diversity & Connectivity of a Rare Species", "When a < b and b > c", "Plain"],
+    )
+    def test_ordinary_titles_are_untouched(self, title):
+        assert apply("plain_text", title) == title
+
+    def test_nothing_but_markup_is_omitted(self):
+        assert apply("plain_text", "<p> </p>") is None
+
+
+class TestSplitOnSeveralSeparators:
+    def test_a_list_of_separators_splits_on_any_of_them(self):
+        args = {"sep": [",", ";"]}
+        assert apply("split", "aluminum alloys; cold spray; corrosion", args=args) == [
+            "aluminum alloys", "cold spray", "corrosion",
+        ]
+        assert apply("split", "birds, development; estradiol", args=args) == [
+            "birds", "development", "estradiol",
+        ]
+
+    def test_a_single_separator_still_works(self):
+        assert apply("split", "a; b, c", args={"sep": ","}) == ["a; b", "c"]
+
+    def test_several_separators_can_be_rejoined(self):
+        assert apply("split", "a; b,c", args={"sep": [",", ";"], "join": ", "}) == "a, b, c"
+
+
+class TestUnproxiedLinks:
+    ARGS = {"scheme": "url", "unproxy": ["ezproxy.bucknell.edu"]}  # noqa: RUF012
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("http://www.jstor.org.ezproxy.bucknell.edu/stable/10.5406/x", "http://www.jstor.org/stable/10.5406/x"),
+            ("http://muse.jhu.edu.ezproxy.bucknell.edu/journals/a.html", "http://muse.jhu.edu/journals/a.html"),
+            ("https://www-ams-org.ezproxy.bucknell.edu/journals/x", "https://www.ams.org/journals/x"),
+            ("https://www.jstor.org/stable/1", "https://www.jstor.org/stable/1"),
+            ("https://example.org/?u=http://x.ezproxy.bucknell.edu/", "https://example.org/?u=http://x.ezproxy.bucknell.edu/"),
+        ],
+    )
+    def test_library_proxy_is_removed_from_the_link(self, raw, expected):
+        assert apply("identifier", raw, args=dict(self.ARGS)) == {
+            "identifier": expected, "scheme": "url",
+        }
+
+    def test_links_are_left_proxied_unless_asked(self):
+        raw = "http://www.jstor.org.ezproxy.bucknell.edu/stable/1"
+        assert apply("identifier", raw, args={"scheme": "url"})["identifier"] == raw

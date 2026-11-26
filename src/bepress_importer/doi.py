@@ -18,6 +18,8 @@ _PREFIX_GAP = re.compile(r"((?<![\d.])10\.\d{4,9}/)\s+(?=\S)")
 _LANDING_SUFFIX = re.compile(
     r"/(?:abstract|full|fulltext\.html|pdf|epdf|pdfplus|meta|summary)$", re.IGNORECASE
 )
+# what is left of an HTML tag after a DOI: "</a>", or the mangled ">/a>"
+_MARKUP_TAIL = re.compile(r"(?:</\w*>?|>/\w+>?)+$")
 _BRACKETS = {")": "(", "]": "[", ">": "<"}
 _REFERENCE = re.compile(
     r"(?:^|\s|://)(?:(?:www\.)?(?:dx[./])?doi[./]org/+|doi\s*:)\s*(?=10\.\d{4,9}/)",
@@ -30,6 +32,7 @@ _BARE = re.compile(r"^\s*(?:https?://)?(?=10\.\d{4,9}/)", re.IGNORECASE)
 def _clean(candidate: str) -> str | None:
     """Strip everything a landing page or a sentence adds around a DOI."""
     doi = re.split(r"[?#]", candidate, maxsplit=1)[0]
+    doi = _MARKUP_TAIL.sub("", doi)
     if "%" in doi:
         doi = unquote(doi)
     while True:

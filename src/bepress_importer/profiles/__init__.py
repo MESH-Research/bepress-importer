@@ -41,6 +41,9 @@ class ResourceTypeMapping:
 class AuthorColumns:
     prefix: str = "author"
     max: int = 32
+    # a column holding the author list as JSON; corporate authors appear only
+    # there in some exports (their numbered columns are left blank)
+    json_column: str | None = None
 
 
 @dataclass(frozen=True)

@@ -92,6 +92,21 @@ class TestExtractDoi:
         raw = '< a href="http://link.aps.org/doi/10.1103/PhysRevD.83.052007">link'
         assert extract_doi(raw) == "10.1103/PhysRevD.83.052007"
 
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "dx.doi.org/10.3758/BF03197080>/a>",
+            "<a href='x'>10.3758/BF03197080</a>",
+            "10.3758/BF03197080</a>",
+        ],
+    )
+    def test_leftover_markup_after_a_doi_is_removed(self, raw):
+        assert extract_doi(raw) == "10.3758/BF03197080"
+
+    def test_angle_brackets_that_belong_to_a_doi_are_kept(self):
+        doi = "10.1002/1520-6807(198704)24:2<135::AID-PITS2310240207>3.0.CO;2-Y"
+        assert extract_doi(f"http://dx.doi.org/{doi}") == doi
+
     def test_a_doi_repeated_with_citation_text_glued_on_yields_the_clean_one(self):
         raw = (
             "https://doi.org/10.1080/25742442.2022.2163582Greenspon, E. B. (2023). "
