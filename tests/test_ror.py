@@ -61,10 +61,15 @@ PENN_STATE = response(
     ),
     item("035h06756", "Magtymguly Turkmen State University", 0.95),
 )
+UNION_COLLEGES = response(
+    item("058w5nk68", "Union College", 1.0, chosen=True),
+    item("03ypdv455", "Union College", 1.0),
+)
 PENN_STATE_LOOKUP = RorLookup(
-    ror_id="04p491231", name="Pennsylvania State University", score=1.0, contested=False,
+    ror_id="04p491231", name="Pennsylvania State University", score=1.0,
     names=("Pennsylvania State University", "Universidad Estatal de Pensilvania"),
     places=("State College", "Pennsylvania", "PA", "United States", "US"),
+    rivals=("Magtymguly State University",),
 )
 
 
@@ -82,8 +87,8 @@ NOTHING = response()
 class TestReadResponse:
     def test_the_chosen_organisation_is_reported_with_its_bare_id_and_display_name(self):
         lookup = read_response(PENN_STATE)
-        assert (lookup.ror_id, lookup.name, lookup.score, lookup.contested) == (
-            "04p491231", "Pennsylvania State University", 1.0, False
+        assert (lookup.ror_id, lookup.name, lookup.score, lookup.rivals) == (
+            "04p491231", "Pennsylvania State University", 1.0, ()
         )
 
     def test_its_official_names_are_kept_but_not_its_aliases_or_acronyms(self):
@@ -102,17 +107,22 @@ class TestReadResponse:
     def test_an_empty_answer_is_no_match(self):
         assert read_response(NOTHING) == RorLookup()
 
-    def test_another_organisation_scoring_as_high_makes_the_choice_contested(self):
+    def test_organisations_scoring_as_high_as_the_chosen_one_are_kept_as_rivals(self):
         payload = response(
             item("058w5nk68", "Union College", 1.0, chosen=True),
-            item("037x4qk98", "International Union Against Tuberculosis", 1.0),
+            item("037x4qk98", "International Union Against Tuberculosis", 1.0,
+                 labels=("Union Internationale Contre la Tuberculose",), aliases=("The Union",)),
+            item("01j78w442", "Germantown Academy", 0.86),
         )
-        assert read_response(payload).contested is True
+        assert read_response(payload).rivals == (
+            "International Union Against Tuberculosis",
+            "Union Internationale Contre la Tuberculose",
+        )
 
 
 class TestIsCertain:
-    """Certain means: ROR chose the organisation, at full score, uncontested,
-    AND the text is that organisation's own official name."""
+    """Certain means: ROR chose the organisation, at full score, AND the text
+    is that organisation's own official name, shared with no equal rival."""
 
     def test_the_official_name_chosen_at_full_score_is_certain(self):
         assert is_certain(read_response(PENN_STATE), "Pennsylvania State University")
@@ -185,12 +195,22 @@ class TestIsCertain:
         assert not is_certain(read_response(payload), text)
         assert is_certain(read_response(payload), text, min_score=0.95)
 
-    def test_a_contested_choice_is_not_certain(self):
-        lookup = RorLookup(
-            ror_id="058w5nk68", name="Union College", score=1.0, contested=True,
-            names=("Union College",),
+    def test_an_equally_scored_organisation_of_the_same_name_makes_it_uncertain(self):
+        payload = response(
+            item("058w5nk68", "Union College", 1.0, chosen=True),
+            item("03ypdv455", "Union College", 1.0, place=("Lincoln", "Nebraska", "NE",
+                                                           "United States", "US")),
         )
-        assert not is_certain(lookup, "Union College")
+        assert not is_certain(read_response(payload), "Union College")
+        assert not is_certain(read_response(payload), "The Union College, Pennsylvania")
+
+    def test_an_equally_scored_organisation_of_another_name_does_not(self):
+        payload = response(
+            item("047rhhm47", "Brigham Young University", 1.0, chosen=True),
+            item("03cs8cm72", "Brigham Young University–Hawaii", 1.0),
+            item("01gqmkc84", "Brigham Young University–Idaho", 1.0),
+        )
+        assert is_certain(read_response(payload), "Brigham Young University")
 
 
 class TestRorCache:
@@ -205,7 +225,7 @@ class TestRorCache:
     def test_answers_survive_on_disk(self, tmp_path):
         path = tmp_path / "ror.sqlite3"
         first = RorCache(path)
-        first.put("TRIUMF", RorLookup("03kgj4539", "TRIUMF", 1.0, False))
+        first.put("TRIUMF", RorLookup("03kgj4539", "TRIUMF", 1.0))
         first.close()
         assert RorCache(path).get("TRIUMF").ror_id == "03kgj4539"
 
@@ -216,13 +236,13 @@ class TestRorCache:
 
     def test_case_and_spacing_do_not_make_a_different_text(self, tmp_path):
         cache = RorCache(tmp_path / "ror.sqlite3")
-        cache.put("Penn State University", RorLookup("04p491231", "PSU", 1.0, False))
+        cache.put("Penn State University", RorLookup("04p491231", "PSU", 1.0))
         assert cache.get("  penn  state UNIVERSITY ").ror_id == "04p491231"
 
     def test_a_later_answer_replaces_an_earlier_one(self, tmp_path):
         cache = RorCache(tmp_path / "ror.sqlite3")
         cache.put("X", RorLookup())
-        cache.put("X", RorLookup("03kgj4539", "TRIUMF", 1.0, False))
+        cache.put("X", RorLookup("03kgj4539", "TRIUMF", 1.0))
         assert cache.get("X").ror_id == "03kgj4539"
 
     def test_a_cache_file_in_an_older_layout_is_started_afresh(self, tmp_path):
@@ -372,7 +392,7 @@ class TestResolver:
 
     def test_without_a_fetch_only_known_and_cached_answers_are_given(self, tmp_path):
         cache = RorCache(tmp_path / "ror.sqlite3")
-        cache.put("TRIUMF", RorLookup("03kgj4539", "TRIUMF", 1.0, False, names=("TRIUMF",)))
+        cache.put("TRIUMF", RorLookup("03kgj4539", "TRIUMF", 1.0, names=("TRIUMF",)))
         resolver = RorResolver(known=BUCKNELL, cache=cache)
         assert resolver.resolve("TRIUMF").ror_id == "03kgj4539"
         assert resolver.resolve("Bucknell").ror_id == "00fc1qt65"
@@ -442,3 +462,7 @@ class TestResolver:
             item("04b6b6f76", "North Central State College", 1.0, chosen=True, aliases=("NC State",))
         )
         assert RorResolver(fetch=api({"NC State": payload})).resolve("NC State") is None
+
+    def test_a_name_two_equally_scored_organisations_share_is_left_alone(self):
+        resolver = RorResolver(fetch=api({"Union College": UNION_COLLEGES}))
+        assert resolver.resolve("Union College") is None

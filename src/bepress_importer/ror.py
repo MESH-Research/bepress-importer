@@ -21,7 +21,7 @@ _TIMEOUT = 30
 _MAX_WAIT = 300
 # consecutive failed lookups after which the API is left alone for the run
 _GIVE_UP_AFTER = 3
-_CACHE_LAYOUT = 2
+_CACHE_LAYOUT = 3
 
 
 class RorUnavailable(Exception):
@@ -33,18 +33,18 @@ class RorLookup:
     """What the ROR API said about one affiliation text.
 
     ror_id/name/score describe the organisation the API itself marked as its
-    chosen match (all None when it chose none); contested is true when some
-    other organisation scored at least as high.
+    chosen match (all None when it chose none).
     """
 
     ror_id: str | None = None
     name: str | None = None
     score: float | None = None
-    contested: bool = False
     # the chosen organisation's official names (display name and labels in
     # other languages — not aliases or acronyms) and where it is
     names: tuple[str, ...] = ()
     places: tuple[str, ...] = ()
+    # official names of other organisations that scored as high as the chosen one
+    rivals: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,14 +73,13 @@ def read_response(payload: dict) -> RorLookup:
     name = next(
         (n.get("value") for n in names if "ror_display" in (n.get("types") or [])), None
     )
-    contested = any(
-        entry is not chosen[0] and (entry.get("score") or 0) >= (score or 0) for entry in items
+    rivals = tuple(
+        rival_name
+        for entry in items
+        if entry is not chosen[0] and (entry.get("score") or 0) >= (score or 0)
+        for rival_name in _official_names(entry.get("organization") or {})
     )
-    official = tuple(
-        n["value"]
-        for n in names
-        if n.get("value") and {"ror_display", "label"} & set(n.get("types") or [])
-    )
+    official = _official_names(organization)
     places = []
     for location in organization.get("locations") or []:
         details = location.get("geonames_details") or {}
@@ -91,8 +90,18 @@ def read_response(payload: dict) -> RorLookup:
             if details.get(key) and details[key] not in places:
                 places.append(details[key])
     return RorLookup(
-        ror_id=ror_id, name=name, score=score, contested=contested,
-        names=official, places=tuple(places),
+        ror_id=ror_id, name=name, score=score,
+        names=official, places=tuple(places), rivals=rivals,
+    )
+
+
+def _official_names(organization: dict) -> tuple[str, ...]:
+    """An organisation's display name and its labels in other languages —
+    not its aliases or acronyms, which other organisations may share."""
+    return tuple(
+        n["value"]
+        for n in organization.get("names") or []
+        if n.get("value") and {"ror_display", "label"} & set(n.get("types") or [])
     )
 
 
@@ -100,17 +109,16 @@ def is_certain(lookup: RorLookup, text: str, min_score: float = 1.0) -> bool:
     """Whether the API's answer for `text` is safe to use without a person
     checking it.
 
-    The API must have chosen an organisation, at full score, with nothing
-    else scoring as high — and the text must be that organisation's own
-    official name (see names_the_organisation). The API's choice alone is not
-    enough: it also chooses on aliases and shared words, which is how
+    The API must have chosen an organisation, at full score — and the text
+    must be that organisation's own official name, a name no equally scored
+    organisation shares (see names_the_organisation). The API's choice alone
+    is not enough: it also chooses on aliases and shared words, which is how
     "NC State" comes back as North Central State College.
     """
     return (
         lookup.ror_id is not None
         and lookup.score is not None
         and lookup.score >= min_score
-        and not lookup.contested
         and names_the_organisation(text, lookup)
     )
 
@@ -137,8 +145,10 @@ def names_the_organisation(text: str, lookup: RorLookup) -> bool:
     """Whether the text is one of the organisation's official names — alone,
     or followed only by where the organisation is ("X University - Fort
     Collins", "X University, Japan") — rather than something that resembles it.
+    A name that an equally scored rival also bears identifies neither.
     """
     words = _words(text)
+    shared = [_words(rival) for rival in lookup.rivals]
     places = [*lookup.places]
     for code, synonyms in _PLACE_SYNONYMS.items():
         if code in lookup.places:
@@ -147,6 +157,8 @@ def names_the_organisation(text: str, lookup: RorLookup) -> bool:
     for name in lookup.names:
         name_words = _words(name)
         if not name_words or words[: len(name_words)] != name_words:
+            continue
+        if name_words in shared:
             continue
         rest = [word for word in words[len(name_words):] if word not in _FILLERS]
         if _only_places(rest, place_words):
@@ -191,24 +203,24 @@ class RorCache:
             " ror_id TEXT,"  # NULL: the API chose no organisation
             " name TEXT,"  # its display name
             " score REAL,"
-            " contested INTEGER NOT NULL,"  # another organisation scored as high
             " names TEXT NOT NULL,"  # JSON list: its official names
             " places TEXT NOT NULL,"  # JSON list: its city, region and country
+            " rivals TEXT NOT NULL,"  # JSON list: names of organisations scoring as high
             " fetched_at TEXT NOT NULL)"
         )
         self._db.commit()
 
     def get(self, text: str) -> RorLookup | None:
         row = self._db.execute(
-            "SELECT ror_id, name, score, contested, names, places "
+            "SELECT ror_id, name, score, names, places, rivals "
             "FROM affiliation_lookup WHERE query = ?",
             (_key(text),),
         ).fetchone()
         if row is None:
             return None
         return RorLookup(
-            ror_id=row[0], name=row[1], score=row[2], contested=bool(row[3]),
-            names=tuple(json.loads(row[4])), places=tuple(json.loads(row[5])),
+            ror_id=row[0], name=row[1], score=row[2], names=tuple(json.loads(row[3])),
+            places=tuple(json.loads(row[4])), rivals=tuple(json.loads(row[5])),
         )
 
     def put(self, text: str, lookup: RorLookup) -> None:
@@ -217,9 +229,10 @@ class RorCache:
             "INSERT OR REPLACE INTO affiliation_lookup VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 _key(text), " ".join(text.split()), lookup.ror_id, lookup.name,
-                lookup.score, int(lookup.contested),
+                lookup.score,
                 json.dumps(list(lookup.names), ensure_ascii=False),
-                json.dumps(list(lookup.places), ensure_ascii=False), fetched_at,
+                json.dumps(list(lookup.places), ensure_ascii=False),
+                json.dumps(list(lookup.rivals), ensure_ascii=False), fetched_at,
             ),
         )
         self._db.commit()
