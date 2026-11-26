@@ -188,7 +188,7 @@ class TestPodcastsGroup:
 class TestCatchAllGroup:
     def test_event_rows_fall_back_to_their_start_date(self, profile):
         mapping = field(block(profile, "inventory"), "/metadata/publication_date")
-        assert mapping.args.get("fallback_columns") == ["start_date"]
+        assert mapping.args.get("fallback_columns")[0] == "start_date"
 
     def test_inventory_document_types_are_mapped(self, profile):
         rt = block(profile, "inventory").resource_type
@@ -302,6 +302,7 @@ class TestEndToEndRouting:
 
 IMPORT_COLUMNS = (
     *COLUMNS, "doi", "pub_link", "pub_statement", "publisher", "src_journal",
+    "authors", "date_posted", "volnum", "issnum", "fpage", "lpage",
 )
 
 
@@ -484,3 +485,119 @@ class TestCleanedDocumentTypes:
         record = records_by_id(result)["1"]
         assert record["metadata"]["resource_type"] == {"id": resource_type}
         assert result.issues == []
+
+
+class TestSensibleValues:
+    """Things a reader of the imported record would otherwise trip over."""
+
+    @pytest.mark.parametrize(
+        "publication, document_type",
+        [
+            ("fac_journ", "article"), ("masters_theses", "masters_thesis"),
+            ("honors_theses", "honors_thesis"), ("books", "book"),
+            ("bucknell-press", "book"), ("dssrf", "digital_project"),
+            ("bucknell-occupied", "interview"), ("fac_pubs", "article"),
+            ("bucknell_digital_scholarship", "digital_project"),
+        ],
+    )
+    def test_titles_are_plain_text_in_every_group(self, profile, publication, document_type):
+        row = import_row(
+            context_key="1", publication=publication, document_type=document_type,
+            title="Measuring H<sub>2</sub>S over <em>Solanum</em>  sites",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["title"] == "Measuring H2S over Solanum sites"
+
+    @pytest.mark.parametrize(
+        "publication, document_type",
+        [
+            ("fac_journ", "article"), ("masters_theses", "masters_thesis"),
+            ("honors_theses", "honors_thesis"), ("books", "book"),
+            ("bucknell-press", "book"), ("dssrf", "digital_project"),
+            ("bucknell-occupied", "interview"), ("fac_pubs", "article"),
+            ("bucknell_digital_scholarship", "digital_project"),
+        ],
+    )
+    def test_keywords_typed_with_semicolons_become_separate_tags(
+        self, profile, publication, document_type
+    ):
+        row = import_row(
+            context_key="1", publication=publication, document_type=document_type,
+            keywords="aluminum alloys; cold spray; corrosion resistance",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["custom_fields"]["kcr:user_defined_tags"][:3] == [
+            "aluminum alloys", "cold spray", "corrosion resistance",
+        ]
+
+    def test_library_proxy_links_are_made_public(self, profile):
+        row = import_row(
+            context_key="1",
+            pub_link="http://www.jstor.org.ezproxy.bucknell.edu/stable/40157007",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert {"identifier": "http://www.jstor.org/stable/40157007", "scheme": "url"} in (
+            record["metadata"]["identifiers"]
+        )
+
+    def test_corporate_authors_are_not_lost(self, profile):
+        row = import_row(
+            context_key="1", publication="newsletters", document_type="newsletters",
+            author1_fname="", author1_lname="",
+            authors='[{"CORPORATE_AUTHOR": "Bucknell University Environmental Center", '
+                    '"IS_CORPORATE_AUTHOR": "1"}]',
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert [c["person_or_org"] for c in record["metadata"]["creators"]] == [
+            {"type": "organizational", "name": "Bucknell University Environmental Center"}
+        ]
+
+    def test_an_undated_item_takes_the_date_it_was_posted(self, profile):
+        row = import_row(
+            context_key="1", publication="humanities-review", document_type="journalArticle",
+            publication_date="", date_posted="2017-10-23 06:30:18",
+        )
+        result = convert_rows(profile, row)
+        assert records_by_id(result)["1"]["metadata"]["publication_date"] == "2017-10-23"
+        assert result.issues == []
+
+    def test_an_events_own_start_date_is_preferred_to_the_posting_date(self, profile):
+        row = import_row(
+            context_key="1", publication="lit_pubs", document_type="conference",
+            publication_date="", start_date="2012-11-17", date_posted="2017-10-23 06:30:18",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["publication_date"] == "2012-11-17"
+
+    def test_notes_in_volume_and_page_cells_are_left_out(self, profile):
+        row = import_row(
+            context_key="1", src_journal="J", volnum="Online; print edition forthcoming",
+            issnum="2", fpage="062105", lpage="not applicable",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["custom_fields"]["journal:journal"] == {
+            "title": "J", "issue": "2", "pages": "062105",
+        }
+
+
+class TestBucknellIsThePublisherOfItsOwnWork:
+    """Theses and Bucknell's own digital projects have no outside publisher;
+    KC Works needs one to register their DOIs."""
+
+    @pytest.mark.parametrize(
+        "publication, document_type",
+        [
+            ("masters_theses", "masters_thesis"), ("honors_theses", "honors_thesis_b"),
+            ("dssrf", "digital_project"), ("bucknell-occupied", "interview"),
+            ("bucknell_digital_scholarship", "digital_project"),
+        ],
+    )
+    def test_publisher_is_bucknell_university(self, profile, publication, document_type):
+        row = import_row(context_key="1", publication=publication, document_type=document_type)
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["publisher"] == "Bucknell University"
+
+    def test_the_press_keeps_its_own_imprint(self, profile):
+        row = import_row(context_key="1", publication="bucknell-press", document_type="book")
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["publisher"] == "Bucknell University Press"
