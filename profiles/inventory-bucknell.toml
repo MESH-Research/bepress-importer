@@ -179,11 +179,27 @@ select = { column = "publication", values = ["fac_journ"] }
   args = { scheme = "url", doi_references = true, find_url = true, unproxy = ["ezproxy.bucknell.edu"] }
   append = true
 
+  # a few rows have the DOI typed into the volume or issue cell
+  # ("Online First: doi:10…") and nowhere else
+  [[sheet.field]]
+  source = "volnum"
+  target = "/metadata/identifiers"
+  transform = "doi_mention"
+  append = true
+
+  [[sheet.field]]
+  source = "issnum"
+  target = "/metadata/identifiers"
+  transform = "doi_mention"
+  append = true
+
   [[sheet.field]]
   source = "publisher"
   target = "/metadata/publisher"
   transform = "publisher"
-  args = { statement_columns = ["pub_statement"], doi_columns = ["doi"], link_columns = ["pub_link"] }
+  # add `fallback = "…"` to these args to name a publisher for the rows that
+  # nothing identifies (KC Works cannot register a DOI without one)
+  args = { statement_columns = ["pub_statement"], doi_columns = ["doi", "volnum", "issnum"], link_columns = ["pub_link"] }
 
   [[sheet.field]]
   source = "comments"

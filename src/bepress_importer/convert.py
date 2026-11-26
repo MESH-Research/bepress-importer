@@ -388,8 +388,15 @@ def _describe_change(
         return f"imported as a namespaced tag ({args.get('prefix', '')})"
     if transform == "author_institution":
         return "taken from the first non-empty author institution column"
+    if transform == "doi_mention":
+        return "a DOI was written into this cell — recorded as the work's DOI"
     if transform == "publisher":
         match = publisher_evidence(row, args)
+        if match is None and not raw:
+            return (
+                "no publisher given in the export and nothing in the row identifies "
+                "one — the profile's fallback publisher is used"
+            )
         if match is None:
             return "publisher as given in the export"
         clue = {

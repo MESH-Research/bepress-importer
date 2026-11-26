@@ -114,7 +114,7 @@ class TestJournalArticlesGroup:
         sources = {
             f.source for f in sheet.fields if f.target == "/metadata/identifiers"
         }
-        assert sources == {"pub_link", "doi"}
+        assert {"pub_link", "doi"} <= sources
 
 
 class TestThesesGroups:
@@ -601,3 +601,24 @@ class TestBucknellIsThePublisherOfItsOwnWork:
         row = import_row(context_key="1", publication="bucknell-press", document_type="book")
         record = records_by_id(convert_rows(profile, row))["1"]
         assert record["metadata"]["publisher"] == "Bucknell University Press"
+
+
+class TestDoiStrandedInAVolumeCell:
+    def test_it_is_registered_and_the_cell_is_not_used_as_a_volume(self, profile):
+        row = import_row(
+            context_key="1", src_journal="J",
+            volnum="Online First: doi:10.1177/1468087411424376",
+            issnum="Online First: doi:10.1177/1468087411424376",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["pids"]["doi"]["identifier"] == "10.1177/1468087411424376"
+        assert record["custom_fields"]["journal:journal"] == {"title": "J"}
+        assert record["metadata"]["publisher"] == "SAGE Publications"
+
+    def test_the_doi_column_still_takes_precedence(self, profile):
+        row = import_row(
+            context_key="1", doi="10.1016/J.JMPS.2018.02.012",
+            volnum="doi: 10.1016/j.jmps.2018.02.012",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["pids"]["doi"]["identifier"] == "10.1016/J.JMPS.2018.02.012"

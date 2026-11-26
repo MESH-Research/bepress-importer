@@ -317,11 +317,12 @@ def publisher(value: str, row: dict[str, str], args: dict) -> object | None:
     args.statement_columns / doi_columns / link_columns name the columns to
     search for a copyright statement naming the publisher, a DOI carrying its
     prefix and a link to its platform (in that order of trust).
+    args.fallback, when given, is used for rows that none of these identify.
     """
     if value:
         return value
     match = publisher_evidence(row, args)
-    return match.name if match else None
+    return match.name if match else args.get("fallback")
 
 
 # words that only a rights statement uses, and words it shares with ordinary
@@ -388,3 +389,12 @@ def plain_text(value: str, row: dict[str, str], args: dict) -> object | None:
     text = _INLINE_TAG_RE.sub("", value)
     text = html.unescape(_ANY_TAG_RE.sub(" ", text))
     return " ".join(text.split()) or None
+
+
+@transform("doi_mention", opportunistic=True)
+def doi_mention(value: str, row: dict[str, str], args: dict) -> object | None:
+    """A DOI written into a cell meant for something else (a volume number
+    replaced by "Online First: doi:10…") → doi identifier; any other cell is
+    passed over in silence."""
+    doi = extract_doi(value)
+    return {"identifier": doi, "scheme": "doi"} if doi else None

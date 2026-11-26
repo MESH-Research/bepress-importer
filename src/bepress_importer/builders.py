@@ -23,6 +23,7 @@ def _get(row: dict[str, str], column: str | None) -> str:
     return row.get(column, "").strip() if column else ""
 
 
+_CLASS_YEAR_RE = re.compile(r"^['‘’`]\d{2}$")
 _EMAIL_RE = re.compile(r"^\S+@\S+\.\S+$")
 
 
@@ -77,6 +78,8 @@ def build_creators(row: dict[str, str], config: AuthorColumns) -> list[dict]:
             person_or_org: dict = {"type": "organizational", "name": lname or fname}
         else:
             given = " ".join(part for part in (fname, mname) if part)
+            if _CLASS_YEAR_RE.match(suffix):
+                suffix = ""  # a graduation year ('20), not part of the name
             name = ", ".join(part for part in (lname, given, suffix) if part)
             person_or_org = {"type": "personal", "name": name}
             if given:

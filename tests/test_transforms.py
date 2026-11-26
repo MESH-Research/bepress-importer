@@ -584,3 +584,37 @@ class TestUnproxiedLinks:
     def test_links_are_left_proxied_unless_asked(self):
         raw = "http://www.jstor.org.ezproxy.bucknell.edu/stable/1"
         assert apply("identifier", raw, args={"scheme": "url"})["identifier"] == raw
+
+
+class TestDoiMention:
+    @pytest.mark.parametrize(
+        "cell, doi",
+        [
+            ("Online First: doi:10.1177/1468087411424376", "10.1177/1468087411424376"),
+            ("DOI 10.1007/s10237-012-0461-0", "10.1007/s10237-012-0461-0"),
+            ("https://doi.org/10.1038/s41551-018-0334-7", "10.1038/s41551-018-0334-7"),
+        ],
+    )
+    def test_a_doi_written_into_another_cell_is_picked_up(self, cell, doi):
+        assert apply("doi_mention", cell) == {"identifier": doi, "scheme": "doi"}
+
+    @pytest.mark.parametrize("cell", ["12", "Special Issue 3", "Online", "10.5", "2010/11"])
+    def test_ordinary_cells_are_passed_over(self, cell):
+        assert apply("doi_mention", cell) is None
+
+
+class TestFallbackPublisher:
+    def test_a_fallback_is_used_when_nothing_identifies_the_publisher(self):
+        assert apply("publisher", "", args={"fallback": "Example Repository"}) == (
+            "Example Repository"
+        )
+
+    def test_a_publisher_given_or_inferred_beats_the_fallback(self):
+        args = {"fallback": "Example Repository", "doi_columns": ["doi"]}
+        assert apply("publisher", "Given Press", args=args) == "Given Press"
+        assert apply("publisher", "", row={"doi": "10.1016/j.x.2018.02.012"}, args=args) == (
+            "Elsevier"
+        )
+
+    def test_without_a_fallback_an_unknown_publisher_stays_empty(self):
+        assert apply("publisher", "") is None

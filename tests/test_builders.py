@@ -260,3 +260,18 @@ class TestJournalPlausibility:
     def test_a_clean_row_has_nothing_implausible(self):
         row = {"src_journal": "J", "volnum": "3", "issnum": "7", "fpage": "1", "lpage": "9"}
         assert implausible_journal_values(row, JOURNAL) == []
+
+
+class TestNameSuffixes:
+    def test_a_class_year_is_not_part_of_the_name(self):
+        row = {"author1_fname": "Megan", "author1_lname": "Bugniazet", "author1_suffix": "'20"}
+        person = build_creators(row, AUTHORS)[0]["person_or_org"]
+        assert person["name"] == "Bugniazet, Megan"
+
+    def test_a_curly_apostrophe_class_year_is_recognised_too(self):
+        row = {"author1_fname": "Erin", "author1_lname": "Grundy", "author1_suffix": "’18"}
+        assert build_creators(row, AUTHORS)[0]["person_or_org"]["name"] == "Grundy, Erin"
+
+    def test_a_genuine_suffix_is_kept(self):
+        row = {"author1_fname": "Martin", "author1_lname": "King", "author1_suffix": "Jr."}
+        assert build_creators(row, AUTHORS)[0]["person_or_org"]["name"] == "King, Martin, Jr."

@@ -69,6 +69,9 @@ _TRANSFORM_NOTES = {
                              "the description when the record has no abstract",
     "publisher": "publisher as given, else inferred from a copyright statement "
                  "naming it, the DOI's registrant prefix or a link to its site",
+    "doi_mention": "a DOI typed into this cell is recorded as the work's DOI; "
+                   "any other value is left to the column's ordinary mapping",
+    "plain_text": "markup removed, whitespace collapsed",
 }
 
 
