@@ -12,7 +12,9 @@ from bepress_importer.builders import (
     build_imprint,
     build_journal,
 )
-from bepress_importer.profiles import Defaults, Profile, SheetProfile
+from bepress_importer.doi import is_resolver_address
+from bepress_importer.pids import doi_claim, keep_doi_as_link, promote_doi_pid
+from bepress_importer.profiles import Defaults, DoiPid, Profile, SheetProfile
 from bepress_importer.readers import Table, Workbook
 from bepress_importer.transforms import apply_transform
 
@@ -103,6 +105,7 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
     output is reproducible.
     """
     result = ConversionResult()
+    origin: dict[int, str] = {}  # record → the sheet it came from, for late issues
     for table in workbook.tables:
         blocks = profile.match_sheets(table.name, columns=table.columns)
         if not blocks:
@@ -115,6 +118,7 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
                 block_table, block, profile.defaults, as_of, result.issues,
                 slug, result.value_changes,
             )
+            origin.update((id(record), table.name) for record in records)
             result.collections.setdefault(slug, []).extend(records)
             result.collections[slug].sort(key=lambda r: _sort_key(_record_id(r)))
             doc = conversion_log.describe_sheet(
@@ -123,7 +127,88 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
             if filter_doc:
                 doc["row_filter"] = filter_doc
             result.sheet_docs.append(doc)
+    if profile.defaults.doi_pid is not None:
+        _register_doi_pids(result, profile.defaults.doi_pid, origin)
     return result
+
+
+def _register_doi_pids(
+    result: ConversionResult, settings: DoiPid, origin: dict[int, str]
+) -> None:
+    """Move each record's existing DOI into its `pids` block.
+
+    A DOI identifies one work, and KC Works matches incoming records on it —
+    so a DOI that several records in this conversion claim is registered for
+    none of them (it stays as a link on each) and every claimant is reported.
+    """
+    claimants: dict[str, list[str]] = {}
+    for records in result.collections.values():
+        for record in records:
+            claim = doi_claim(record)
+            if claim:
+                claimants.setdefault(claim.lower(), []).append(_record_id(record))
+
+    for collection, records in result.collections.items():
+        for record in records:
+            claim = doi_claim(record)
+            if claim is None:
+                continue
+            record_id = _record_id(record)
+            sheet = origin.get(id(record), collection)
+            others = [other for other in claimants[claim.lower()] if other != record_id]
+            if others:
+                outcome = keep_doi_as_link(record)
+                target = "/metadata/identifiers"
+                value: object = {"identifier": f"https://doi.org/{claim}", "scheme": "url"}
+                reason = (
+                    f"DOI also given for record(s) {', '.join(others)} — one DOI cannot "
+                    "identify several records, so it is kept as a link and not registered"
+                )
+                result.issues.append(
+                    Issue(
+                        sheet,
+                        record_id,
+                        f"DOI {claim} is also given for record(s) {', '.join(others)} — "
+                        "not registered as this record's DOI (kept as a link); "
+                        "check which record it belongs to",
+                    )
+                )
+            else:
+                outcome = promote_doi_pid(
+                    record,
+                    provider=settings.provider,
+                    keep_identifiers=settings.keep_identifiers,
+                )
+                target = "/pids/doi"
+                value = dict(record["pids"]["doi"])
+                reason = (
+                    "existing DOI registered as the record's own "
+                    f"({settings.provider}) DOI, in bare form"
+                )
+                for other_doi in outcome.conflicting:
+                    result.issues.append(
+                        Issue(
+                            sheet,
+                            record_id,
+                            f"two different DOIs given: {claim} is registered as the "
+                            f"record's DOI, {other_doi} is kept as a link",
+                        )
+                    )
+            result.value_changes.append(
+                ValueChange(
+                    collection=collection,
+                    record_id=record_id,
+                    source="DOI",
+                    target=target,
+                    raw="; ".join(
+                        f"{entry.get('scheme')}: {entry.get('identifier')}"
+                        for entry in outcome.consumed
+                    ),
+                    result=value,
+                    action="transformed",
+                    reason=reason,
+                )
+            )
 
 
 def _route_rows(
@@ -215,10 +300,25 @@ def _describe_change(
         return "date normalized to EDTF"
     if transform == "identifier":
         scheme = args.get("scheme", "identifier")
-        if args.get("normalize") == "doi" and isinstance(value, dict) and value.get(
-            "identifier"
-        ) != raw:
-            return f"DOI normalized to bare form and recorded as a {scheme} identifier"
+        result_scheme = value.get("scheme") if isinstance(value, dict) else None
+        if args.get("normalize") == "doi":
+            if value is None:
+                return "no readable DOI in this cell — value omitted"
+            if result_scheme == "url":
+                if value.get("identifier") != raw:
+                    return "a PubMed id, not a DOI — linked as a PubMed URL"
+                return "a link, not a DOI — kept as a url identifier"
+            if value.get("identifier") != raw:
+                return f"DOI normalized to bare form and recorded as a {scheme} identifier"
+        if scheme == "url":
+            if value is None:
+                if args.get("doi_references") and is_resolver_address(raw):
+                    return "DOI link whose DOI cannot be read — value omitted"
+                return "not a valid http(s) URL — value omitted"
+            if result_scheme == "doi":
+                return "link to a DOI — recorded as the bare DOI"
+            if value.get("identifier") != raw:
+                return "first web link recovered from the cell and recorded as a url identifier"
         return f"recorded as a {scheme} identifier"
     if transform == "split":
         if "join" in args:
@@ -302,6 +402,19 @@ def _convert_sheet(
                             ),
                         )
                     )
+                if (
+                    raw
+                    and value is None
+                    and mapping.transform == "identifier"
+                    and args.get("normalize") == "doi"
+                ):
+                    issues.append(
+                        Issue(
+                            table.name,
+                            record_id,
+                            f"{mapping.source} value {raw!r} is not a readable DOI — omitted",
+                        )
+                    )
             else:
                 value = raw or None
             if value is not None:
@@ -328,9 +441,20 @@ def _convert_sheet(
                 set_pointer(record, "/custom_fields/imprint:imprint", imprint)
         for pointer, constant in sheet.constants.items():
             set_pointer(record, pointer, constant)
+        record["metadata"]["identifiers"] = _without_repeats(record["metadata"]["identifiers"])
 
         records.append(record)
     return records
+
+
+def _without_repeats(identifiers: list[dict]) -> list[dict]:
+    """The identifier list with exact repeats removed (the same link given in
+    two columns is still one identifier)."""
+    unique: list[dict] = []
+    for entry in identifiers:
+        if entry not in unique:
+            unique.append(entry)
+    return unique
 
 
 def _apply_resource_type(

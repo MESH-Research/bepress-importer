@@ -104,6 +104,15 @@ def describe_sheet(
             "target": "metadata.identifiers (scheme url)",
             "why": "preserves the canonical Bepress landing page",
         }
+    if defaults.doi_pid:
+        doc["doi_pid"] = {
+            "provider": defaults.doi_pid.provider,
+            "keep_identifiers": defaults.doi_pid.keep_identifiers,
+            "target": "pids.doi",
+            "why": "a work that already has a DOI keeps it as its KC Works DOI "
+                   "instead of being issued a second one; a DOI that several "
+                   "records claim is registered for none of them",
+        }
     if sheet.resource_type:
         rt = sheet.resource_type
         doc["resource_type"] = (
@@ -212,6 +221,18 @@ def render_text(payload: dict) -> str:
             lines += [
                 f"  {doc['source_url']['column']} → {doc['source_url']['target']}",
                 f"    why: {doc['source_url']['why']}",
+            ]
+        if "doi_pid" in doc:
+            dp = doc["doi_pid"]
+            kept = "kept in" if dp["keep_identifiers"] else "removed from"
+            lines += [
+                "Existing DOIs:",
+                (
+                    "  a record's DOI (a doi identifier, or a link to doi.org / "
+                    f"dx.doi.org) → {dp['target']} (provider {dp['provider']}), in bare "
+                    f"form; the DOI entries are {kept} metadata.identifiers"
+                ),
+                f"    why: {dp['why']}",
             ]
         if "select" in doc:
             sel = doc["select"]

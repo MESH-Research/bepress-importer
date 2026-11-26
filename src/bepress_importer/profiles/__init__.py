@@ -90,12 +90,26 @@ class RowSelect:
 
 
 @dataclass(frozen=True)
+class DoiPid:
+    """Register each record's existing DOI in its `pids` block.
+
+    provider: who registered the DOI ("external" for DOIs minted elsewhere,
+    e.g. by a journal's publisher). keep_identifiers leaves the DOI entries in
+    metadata.identifiers as well.
+    """
+
+    provider: str = "external"
+    keep_identifiers: bool = False
+
+
+@dataclass(frozen=True)
 class Defaults:
     record_id_column: str = "context_key"
     url_column: str | None = None
     files_enabled: bool = False
     season_style: str = "edtf-season"
     authors: AuthorColumns = field(default_factory=AuthorColumns)
+    doi_pid: DoiPid | None = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +214,13 @@ def load_profile(path: str | Path, known_transforms: set[str] | None = None) -> 
 
 def _parse_defaults(raw: dict) -> Defaults:
     authors_raw = raw.get("author_columns", {})
+    doi_pid_raw = raw.get("doi_pid")
+    doi_pid = None
+    if doi_pid_raw is not None:
+        doi_pid = DoiPid(
+            provider=doi_pid_raw.get("provider", "external"),
+            keep_identifiers=doi_pid_raw.get("keep_identifiers", False),
+        )
     return Defaults(
         record_id_column=raw.get("record_id", {}).get("column", "context_key"),
         url_column=raw.get("url_identifier", {}).get("column"),
@@ -209,6 +230,7 @@ def _parse_defaults(raw: dict) -> Defaults:
             prefix=authors_raw.get("prefix", "author"),
             max=authors_raw.get("max", 32),
         ),
+        doi_pid=doi_pid,
     )
 
 
