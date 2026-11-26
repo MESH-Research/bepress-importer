@@ -249,11 +249,52 @@ accumulate into one list target (e.g. `doi` and `isbn` both appending to
 
 Transforms available to profiles: `edtf_date` (with season support and
 fallback columns for empty cells, e.g. an event's `start_date`),
-`identifier` (DOI normalization, segment splitting), `split`, `strip_html`,
-`additional_description`, `url`, `embargo`, `language_list`, `license_url`.
+`identifier` (DOI normalization, segment splitting; `doi_references` turns a
+resolver link into a DOI, `find_url` recovers the link from a messy cell,
+`unproxy` strips a library proxy from the host), `doi_mention` (a DOI typed
+into some other cell), `publisher`, `rights_statement`,
+`misplaced_description`, `plain_text`, `split` (one separator or several),
+`strip_html`, `additional_description`, `url`, `embargo`, `language_list`,
+`license_url`.
 Composite builders: `authorN_*` columns → `creators` (corporate detection
-included), advisor columns → `contributors`, journal/imprint column groups →
-`journal:journal` / `imprint:imprint` custom fields.
+included; `json_column` names a JSON author list to read corporate authors
+from), advisor columns → `contributors`, journal/imprint column groups →
+`journal:journal` / `imprint:imprint` custom fields (page, volume and issue
+cells that hold remarks instead of numbers are left out and reported).
+
+### Existing DOIs and publishers
+
+KC Works registers a DOI for every imported record that does not bring one,
+and refuses to do so without `metadata.publisher`. Two profile features
+address this:
+
+```toml
+[defaults.doi_pid]
+provider = "external"       # keep_identifiers = true also leaves the entries in identifiers
+```
+
+moves each record's own DOI out of `metadata.identifiers` into
+`pids.doi` (`{"identifier": "10.…", "provider": "external"}`), in bare form.
+A DOI claimed by several records is registered for none of them and reported.
+
+```toml
+[[sheet.field]]
+source = "publisher"
+target = "/metadata/publisher"
+transform = "publisher"
+args = { statement_columns = ["pub_statement"], doi_columns = ["doi"], link_columns = ["pub_link"] }
+```
+
+fills an empty publisher from a copyright statement that names one, the
+DOI's prefix or the link's host, using the list in
+`src/bepress_importer/vocab/publishers.toml` (add publishers there, not in
+code). `fallback = "…"` names a publisher for rows nothing identifies.
+
+`rights_statement` keeps a statement out of `metadata.copyright` unless it
+reads as one; `misplaced_description` can route such prose to the
+description instead. `profiles/bucknell_import_readiness.MD` records how
+these were applied to the Bucknell inventory and what the output looks like
+before and after.
 
 ## Vocabularies
 
