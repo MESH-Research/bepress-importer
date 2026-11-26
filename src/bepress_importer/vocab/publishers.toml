@@ -1,0 +1,919 @@
+# Academic publishers and the traces that identify them.
+#
+# Used to fill in metadata.publisher for rows that do not name one (KC Works
+# needs a publisher to register a DOI). Each entry may give any of:
+#
+#   statement     phrases looked for in a copyright / publication statement,
+#                 as whole words, in any letter case
+#   acronyms      short names looked for as whole words in exactly this case
+#                 (so "SAGE" the publisher is not "sage" the adjective)
+#   doi_prefixes  DOI registrant prefixes that belong to this publisher alone
+#   hosts         web domains of the publisher's own platform (subdomains
+#                 are included: "wiley.com" covers onlinelibrary.wiley.com)
+#
+# Deliberately absent, because they carry many publishers' work and so
+# identify none: JSTOR (10.2307, jstor.org), Project MUSE (10.1353,
+# muse.jhu.edu), BioOne, GeoScienceWorld, PubMed, PsycNET, ResearchGate,
+# EBSCO, ProQuest, Ingenta, SSRN, arXiv and the like.
+#
+# To add a publisher, add a [[publisher]] block; no code changes are needed.
+
+# ------------------------------------------------------ large commercial
+[[publisher]]
+name = "Elsevier"
+statement = ["Elsevier", "sciencedirect.com", "Academic Press"]
+doi_prefixes = ["10.1016", "10.1006"]
+hosts = ["sciencedirect.com", "elsevier.com"]
+
+[[publisher]]
+name = "Cell Press"
+statement = ["Cell Press"]
+hosts = ["cell.com"]
+
+[[publisher]]
+name = "Wiley"
+statement = ["Wiley", "Wiley-Blackwell", "John Wiley & Sons", "John Wiley and Sons", "Blackwell Publishing"]
+doi_prefixes = ["10.1002", "10.1111"]
+hosts = ["wiley.com"]
+
+[[publisher]]
+name = "Springer"
+statement = ["Springer", "Springer-Verlag", "springerlink.com", "Kluwer Academic"]
+doi_prefixes = ["10.1007", "10.1023", "10.3758"]
+hosts = ["springer.com", "springerlink.com", "springeropen.com"]
+
+[[publisher]]
+name = "Springer Publishing Company"
+statement = ["Springer Publishing Company"]
+doi_prefixes = ["10.1891"]
+hosts = ["springerpub.com"]
+
+[[publisher]]
+name = "Springer Nature"
+statement = ["Springer Nature", "Nature Publishing Group", "Nature Portfolio", "Nature Research"]
+doi_prefixes = ["10.1038"]
+hosts = ["nature.com"]
+
+[[publisher]]
+name = "BioMed Central"
+statement = ["BioMed Central"]
+acronyms = ["BMC"]
+doi_prefixes = ["10.1186"]
+hosts = ["biomedcentral.com"]
+
+[[publisher]]
+name = "Palgrave Macmillan"
+statement = ["Palgrave Macmillan", "Palgrave"]
+doi_prefixes = ["10.1057"]
+hosts = ["palgrave.com"]
+
+[[publisher]]
+name = "Taylor & Francis"
+statement = ["Taylor & Francis", "Taylor and Francis", "tandfonline.com", "tandf.co.uk", "Informa UK"]
+doi_prefixes = ["10.1080"]
+hosts = ["tandfonline.com", "taylorfrancis.com"]
+
+[[publisher]]
+name = "Routledge"
+statement = ["Routledge"]
+doi_prefixes = ["10.4324"]
+hosts = ["routledge.com"]
+
+[[publisher]]
+name = "CRC Press"
+statement = ["CRC Press"]
+doi_prefixes = ["10.1201"]
+hosts = ["crcpress.com"]
+
+[[publisher]]
+name = "Haworth Press"
+statement = ["Haworth Press"]
+doi_prefixes = ["10.1300"]
+
+[[publisher]]
+name = "SAGE Publications"
+statement = ["SAGE Publications", "SAGE Publishing", "SAGE Journals", "sagepub.com"]
+acronyms = ["SAGE"]
+doi_prefixes = ["10.1177", "10.4135"]
+hosts = ["sagepub.com"]
+
+[[publisher]]
+name = "Emerald Publishing"
+statement = ["Emerald Publishing", "Emerald Group", "emerald.com", "emeraldinsight.com"]
+doi_prefixes = ["10.1108"]
+hosts = ["emerald.com", "emeraldinsight.com"]
+
+[[publisher]]
+name = "Wolters Kluwer"
+statement = ["Wolters Kluwer", "Lippincott Williams & Wilkins", "Lippincott Williams and Wilkins"]
+doi_prefixes = ["10.1097"]
+hosts = ["lww.com"]
+
+[[publisher]]
+name = "De Gruyter"
+statement = ["De Gruyter", "de Gruyter Brill"]
+doi_prefixes = ["10.1515"]
+hosts = ["degruyter.com", "degruyterbrill.com"]
+
+[[publisher]]
+name = "Brill"
+statement = ["Koninklijke Brill", "Brill Academic", "brill.com"]
+acronyms = ["Brill"]
+doi_prefixes = ["10.1163"]
+hosts = ["brill.com", "brillonline.com"]
+
+[[publisher]]
+name = "Bloomsbury"
+statement = ["Bloomsbury Publishing", "Bloomsbury Academic"]
+doi_prefixes = ["10.5040"]
+hosts = ["bloomsbury.com"]
+
+[[publisher]]
+name = "Rowman & Littlefield"
+statement = ["Rowman & Littlefield", "Rowman and Littlefield", "Lexington Books"]
+hosts = ["rowman.com"]
+
+[[publisher]]
+name = "Ashgate"
+statement = ["Ashgate"]
+hosts = ["ashgate.com"]
+
+[[publisher]]
+name = "Peter Lang"
+statement = ["Peter Lang"]
+hosts = ["peterlang.com"]
+
+[[publisher]]
+name = "John Benjamins"
+statement = ["John Benjamins"]
+doi_prefixes = ["10.1075"]
+hosts = ["benjamins.com", "jbe-platform.com"]
+
+[[publisher]]
+name = "Berghahn Books"
+statement = ["Berghahn"]
+doi_prefixes = ["10.3167"]
+hosts = ["berghahnjournals.com", "berghahnbooks.com"]
+
+[[publisher]]
+name = "Intellect"
+statement = ["Intellect Ltd", "Intellect Books"]
+doi_prefixes = ["10.1386"]
+hosts = ["intellectbooks.com", "intellectdiscover.com"]
+
+[[publisher]]
+name = "World Scientific"
+statement = ["World Scientific"]
+doi_prefixes = ["10.1142"]
+hosts = ["worldscientific.com"]
+
+[[publisher]]
+name = "Inderscience Publishers"
+statement = ["Inderscience"]
+doi_prefixes = ["10.1504"]
+hosts = ["inderscience.com", "inderscienceonline.com"]
+
+[[publisher]]
+name = "IOS Press"
+statement = ["IOS Press"]
+doi_prefixes = ["10.3233"]
+hosts = ["iospress.com", "iospress.nl"]
+
+[[publisher]]
+name = "Karger"
+statement = ["Karger"]
+doi_prefixes = ["10.1159"]
+hosts = ["karger.com"]
+
+[[publisher]]
+name = "Mary Ann Liebert"
+statement = ["Mary Ann Liebert"]
+doi_prefixes = ["10.1089"]
+hosts = ["liebertpub.com"]
+
+[[publisher]]
+name = "M.E. Sharpe"
+statement = ["M.E. Sharpe", "M. E. Sharpe"]
+doi_prefixes = ["10.2753"]
+
+[[publisher]]
+name = "Information Age Publishing"
+statement = ["Information Age Publishing"]
+hosts = ["infoagepub.com"]
+
+[[publisher]]
+name = "Wipf and Stock"
+statement = ["Wipf and Stock", "Wipf & Stock"]
+hosts = ["wipfandstock.com"]
+
+[[publisher]]
+name = "Trans Tech Publications"
+statement = ["Trans Tech Publications"]
+doi_prefixes = ["10.4028"]
+hosts = ["scientific.net"]
+
+[[publisher]]
+name = "Portfolio Management Research"
+statement = ["Portfolio Management Research", "Institutional Investor Journals"]
+doi_prefixes = ["10.3905"]
+hosts = ["pm-research.com", "iijournals.com"]
+
+# ------------------------------------------------------------ open access
+[[publisher]]
+name = "MDPI"
+statement = ["Multidisciplinary Digital Publishing Institute"]
+acronyms = ["MDPI"]
+doi_prefixes = ["10.3390"]
+hosts = ["mdpi.com"]
+
+[[publisher]]
+name = "Frontiers Media"
+statement = ["Frontiers Media"]
+doi_prefixes = ["10.3389"]
+hosts = ["frontiersin.org"]
+
+[[publisher]]
+name = "Public Library of Science"
+statement = ["Public Library of Science"]
+acronyms = ["PLOS", "PLoS"]
+doi_prefixes = ["10.1371"]
+hosts = ["plos.org"]
+
+[[publisher]]
+name = "Pensoft Publishers"
+statement = ["Pensoft"]
+doi_prefixes = ["10.3897"]
+hosts = ["pensoft.net"]
+
+[[publisher]]
+name = "PeerJ"
+acronyms = ["PeerJ"]
+doi_prefixes = ["10.7717"]
+hosts = ["peerj.com"]
+
+[[publisher]]
+name = "eLife Sciences Publications"
+statement = ["eLife Sciences"]
+doi_prefixes = ["10.7554"]
+hosts = ["elifesciences.org"]
+
+[[publisher]]
+name = "Copernicus Publications"
+statement = ["Copernicus Publications"]
+doi_prefixes = ["10.5194"]
+hosts = ["copernicus.org"]
+
+[[publisher]]
+name = "Hindawi"
+statement = ["Hindawi"]
+doi_prefixes = ["10.1155"]
+hosts = ["hindawi.com"]
+
+[[publisher]]
+name = "Dove Medical Press"
+statement = ["Dove Medical Press", "Dove Press"]
+doi_prefixes = ["10.2147"]
+hosts = ["dovepress.com"]
+
+[[publisher]]
+name = "Ubiquity Press"
+statement = ["Ubiquity Press"]
+doi_prefixes = ["10.5334"]
+hosts = ["ubiquitypress.com"]
+
+[[publisher]]
+name = "Open Library of Humanities"
+statement = ["Open Library of Humanities"]
+doi_prefixes = ["10.16995"]
+hosts = ["openlibhums.org"]
+
+[[publisher]]
+name = "Cogitatio Press"
+statement = ["Cogitatio"]
+doi_prefixes = ["10.17645"]
+hosts = ["cogitatiopress.com"]
+
+[[publisher]]
+name = "Scientific Research Publishing"
+statement = ["Scientific Research Publishing"]
+doi_prefixes = ["10.4236"]
+hosts = ["scirp.org"]
+
+[[publisher]]
+name = "Magnolia Press"
+statement = ["Magnolia Press"]
+doi_prefixes = ["10.11646"]
+hosts = ["mapress.com"]
+
+[[publisher]]
+name = "Canadian Center of Science and Education"
+statement = ["Canadian Center of Science and Education"]
+doi_prefixes = ["10.5539"]
+hosts = ["ccsenet.org"]
+
+[[publisher]]
+name = "IntechOpen"
+statement = ["IntechOpen"]
+doi_prefixes = ["10.5772"]
+hosts = ["intechopen.com"]
+
+[[publisher]]
+name = "Beilstein-Institut"
+statement = ["Beilstein-Institut", "Beilstein Institut"]
+doi_prefixes = ["10.3762"]
+hosts = ["beilstein-journals.org"]
+
+# ------------------------------------------------------- university presses
+[[publisher]]
+name = "Oxford University Press"
+statement = ["Oxford University Press", "oxfordjournals.org"]
+acronyms = ["OUP"]
+doi_prefixes = ["10.1093"]
+hosts = ["oup.com", "oxfordjournals.org", "oxfordre.com"]
+
+[[publisher]]
+name = "Cambridge University Press"
+statement = ["Cambridge University Press"]
+acronyms = ["CUP"]
+doi_prefixes = ["10.1017"]
+hosts = ["cambridge.org"]
+
+[[publisher]]
+name = "MIT Press"
+statement = ["MIT Press", "Massachusetts Institute of Technology"]
+doi_prefixes = ["10.1162"]
+hosts = ["direct.mit.edu", "mitpressjournals.org", "mitpress.mit.edu"]
+
+[[publisher]]
+name = "Johns Hopkins University Press"
+statement = ["Johns Hopkins University Press"]
+hosts = ["press.jhu.edu"]
+
+[[publisher]]
+name = "University of Chicago Press"
+statement = ["University of Chicago Press"]
+doi_prefixes = ["10.1086"]
+hosts = ["journals.uchicago.edu", "press.uchicago.edu"]
+
+[[publisher]]
+name = "Duke University Press"
+statement = ["Duke University Press"]
+doi_prefixes = ["10.1215"]
+hosts = ["dukeupress.edu"]
+
+[[publisher]]
+name = "University of California Press"
+statement = ["University of California Press", "Regents of the University of California"]
+doi_prefixes = ["10.1525"]
+hosts = ["ucpress.edu"]
+
+[[publisher]]
+name = "Penn State University Press"
+statement = ["Penn State University Press", "Pennsylvania State University Press"]
+doi_prefixes = ["10.5325"]
+hosts = ["psupress.org"]
+
+[[publisher]]
+name = "University of Illinois Press"
+statement = ["University of Illinois Press"]
+doi_prefixes = ["10.5406"]
+hosts = ["press.uillinois.edu"]
+
+[[publisher]]
+name = "Indiana University Press"
+statement = ["Indiana University Press"]
+doi_prefixes = ["10.2979"]
+hosts = ["iupress.org"]
+
+[[publisher]]
+name = "Wayne State University Press"
+statement = ["Wayne State University Press"]
+doi_prefixes = ["10.13110"]
+hosts = ["wsupress.wayne.edu"]
+
+[[publisher]]
+name = "University of Toronto Press"
+statement = ["University of Toronto Press"]
+doi_prefixes = ["10.3138"]
+hosts = ["utpjournals.press", "utppublishing.com"]
+
+[[publisher]]
+name = "University of Texas Press"
+statement = ["University of Texas Press"]
+doi_prefixes = ["10.7560"]
+hosts = ["utpress.utexas.edu"]
+
+[[publisher]]
+name = "University of Minnesota Press"
+statement = ["University of Minnesota Press"]
+doi_prefixes = ["10.5749"]
+hosts = ["upress.umn.edu"]
+
+[[publisher]]
+name = "University of Pennsylvania Press"
+statement = ["University of Pennsylvania Press"]
+doi_prefixes = ["10.9783"]
+hosts = ["pennpress.org"]
+
+[[publisher]]
+name = "University of Washington Press"
+statement = ["University of Washington Press"]
+hosts = ["uwapress.uw.edu"]
+
+[[publisher]]
+name = "Cornell University Press"
+statement = ["Cornell University Press"]
+doi_prefixes = ["10.7591"]
+hosts = ["cornellpress.cornell.edu"]
+
+[[publisher]]
+name = "SUNY Press"
+statement = ["SUNY Press", "State University of New York Press"]
+hosts = ["sunypress.edu"]
+
+[[publisher]]
+name = "Princeton University Press"
+statement = ["Princeton University Press"]
+hosts = ["press.princeton.edu"]
+
+[[publisher]]
+name = "Harvard University Press"
+statement = ["Harvard University Press"]
+doi_prefixes = ["10.4159"]
+hosts = ["hup.harvard.edu"]
+
+[[publisher]]
+name = "Yale University Press"
+statement = ["Yale University Press"]
+hosts = ["yalebooks.yale.edu"]
+
+[[publisher]]
+name = "Columbia University Press"
+statement = ["Columbia University Press"]
+doi_prefixes = ["10.7312"]
+hosts = ["cup.columbia.edu"]
+
+[[publisher]]
+name = "Stanford University Press"
+statement = ["Stanford University Press"]
+hosts = ["sup.org"]
+
+[[publisher]]
+name = "Michigan Publishing"
+statement = ["Michigan Publishing", "University of Michigan Press", "mpub-help@umich.edu"]
+doi_prefixes = ["10.3998"]
+hosts = ["press.umich.edu"]
+
+[[publisher]]
+name = "Edinburgh University Press"
+statement = ["Edinburgh University Press"]
+doi_prefixes = ["10.3366"]
+hosts = ["euppublishing.com"]
+
+[[publisher]]
+name = "Liverpool University Press"
+statement = ["Liverpool University Press"]
+doi_prefixes = ["10.3828"]
+hosts = ["liverpooluniversitypress.co.uk"]
+
+[[publisher]]
+name = "Manchester University Press"
+statement = ["Manchester University Press"]
+doi_prefixes = ["10.7227"]
+hosts = ["manchesteruniversitypress.co.uk"]
+
+[[publisher]]
+name = "Bucknell University Press"
+statement = ["Bucknell University Press"]
+
+# ------------------------------------- societies and institutes: sciences
+[[publisher]]
+name = "IEEE"
+statement = ["Institute of Electrical and Electronics Engineers", "ieee.org"]
+acronyms = ["IEEE"]
+doi_prefixes = ["10.1109"]
+hosts = ["ieee.org"]
+
+[[publisher]]
+name = "Association for Computing Machinery"
+statement = ["Association for Computing Machinery"]
+acronyms = ["ACM"]
+doi_prefixes = ["10.1145"]
+hosts = ["acm.org"]
+
+[[publisher]]
+name = "American Chemical Society"
+statement = ["American Chemical Society"]
+doi_prefixes = ["10.1021"]
+hosts = ["pubs.acs.org"]
+
+[[publisher]]
+name = "Royal Society of Chemistry"
+statement = ["Royal Society of Chemistry"]
+doi_prefixes = ["10.1039"]
+hosts = ["rsc.org"]
+
+[[publisher]]
+name = "American Physical Society"
+statement = ["American Physical Society"]
+doi_prefixes = ["10.1103"]
+hosts = ["aps.org"]
+
+[[publisher]]
+name = "AIP Publishing"
+statement = ["AIP Publishing", "American Institute of Physics"]
+doi_prefixes = ["10.1063"]
+hosts = ["aip.org", "scitation.org"]
+
+[[publisher]]
+name = "American Association of Physics Teachers"
+statement = ["American Association of Physics Teachers"]
+acronyms = ["AAPT"]
+doi_prefixes = ["10.1119"]
+
+[[publisher]]
+name = "IOP Publishing"
+statement = ["IOP Publishing", "Institute of Physics"]
+doi_prefixes = ["10.1088"]
+hosts = ["iop.org"]
+
+[[publisher]]
+name = "American Astronomical Society"
+statement = ["American Astronomical Society"]
+doi_prefixes = ["10.3847"]
+
+[[publisher]]
+name = "Optica Publishing Group"
+statement = ["Optica Publishing Group", "Optical Society of America"]
+doi_prefixes = ["10.1364"]
+hosts = ["optica.org", "osapublishing.org"]
+
+[[publisher]]
+name = "The Electrochemical Society"
+statement = ["Electrochemical Society"]
+doi_prefixes = ["10.1149"]
+
+[[publisher]]
+name = "International Union of Crystallography"
+statement = ["International Union of Crystallography"]
+doi_prefixes = ["10.1107"]
+hosts = ["iucr.org"]
+
+[[publisher]]
+name = "American Mathematical Society"
+statement = ["American Mathematical Society"]
+doi_prefixes = ["10.1090"]
+hosts = ["ams.org"]
+
+[[publisher]]
+name = "London Mathematical Society"
+statement = ["London Mathematical Society"]
+doi_prefixes = ["10.1112"]
+
+[[publisher]]
+name = "Society for Industrial and Applied Mathematics"
+statement = ["Society for Industrial and Applied Mathematics"]
+acronyms = ["SIAM"]
+doi_prefixes = ["10.1137"]
+hosts = ["siam.org"]
+
+[[publisher]]
+name = "EMS Press"
+statement = ["EMS Press", "European Mathematical Society"]
+doi_prefixes = ["10.4171"]
+hosts = ["ems.press", "ems-ph.org"]
+
+[[publisher]]
+name = "American Institute of Mathematical Sciences"
+statement = ["American Institute of Mathematical Sciences"]
+doi_prefixes = ["10.3934"]
+hosts = ["aimsciences.org"]
+
+[[publisher]]
+name = "International Press"
+statement = ["International Press of Boston"]
+hosts = ["intlpress.com"]
+
+[[publisher]]
+name = "INFORMS"
+statement = ["Institute for Operations Research and the Management Sciences"]
+acronyms = ["INFORMS"]
+doi_prefixes = ["10.1287"]
+hosts = ["informs.org"]
+
+[[publisher]]
+name = "American Society of Civil Engineers"
+statement = ["American Society of Civil Engineers"]
+acronyms = ["ASCE"]
+doi_prefixes = ["10.1061"]
+hosts = ["ascelibrary.org", "asce.org"]
+
+[[publisher]]
+name = "American Society of Mechanical Engineers"
+statement = ["American Society of Mechanical Engineers"]
+acronyms = ["ASME"]
+doi_prefixes = ["10.1115"]
+hosts = ["asme.org"]
+
+[[publisher]]
+name = "American Society for Engineering Education"
+statement = ["American Society for Engineering Education"]
+acronyms = ["ASEE"]
+doi_prefixes = ["10.18260"]
+hosts = ["asee.org"]
+
+[[publisher]]
+name = "SAE International"
+statement = ["SAE International"]
+doi_prefixes = ["10.4271"]
+hosts = ["sae.org"]
+
+[[publisher]]
+name = "ICE Publishing"
+statement = ["ICE Publishing", "Thomas Telford"]
+doi_prefixes = ["10.1680"]
+hosts = ["icevirtuallibrary.com"]
+
+[[publisher]]
+name = "Institution of Engineering and Technology"
+statement = ["Institution of Engineering and Technology"]
+doi_prefixes = ["10.1049"]
+hosts = ["theiet.org"]
+
+[[publisher]]
+name = "Transportation Research Board"
+statement = ["Transportation Research Board"]
+doi_prefixes = ["10.3141"]
+hosts = ["trb.org"]
+
+[[publisher]]
+name = "Schloss Dagstuhl – Leibniz-Zentrum für Informatik"
+statement = ["Schloss Dagstuhl"]
+doi_prefixes = ["10.4230"]
+hosts = ["dagstuhl.de"]
+
+[[publisher]]
+name = "American Geophysical Union"
+statement = ["American Geophysical Union"]
+acronyms = ["AGU"]
+doi_prefixes = ["10.1029"]
+
+[[publisher]]
+name = "Geological Society of America"
+statement = ["Geological Society of America"]
+doi_prefixes = ["10.1130"]
+hosts = ["geosociety.org", "gsapubs.org"]
+
+[[publisher]]
+name = "Society of Exploration Geophysicists"
+statement = ["Society of Exploration Geophysicists"]
+doi_prefixes = ["10.1190"]
+hosts = ["seg.org"]
+
+[[publisher]]
+name = "Seismological Society of America"
+statement = ["Seismological Society of America"]
+doi_prefixes = ["10.1785"]
+
+[[publisher]]
+name = "American Meteorological Society"
+statement = ["American Meteorological Society"]
+doi_prefixes = ["10.1175"]
+hosts = ["ametsoc.org"]
+
+# -------------------------------- societies and institutes: life sciences
+[[publisher]]
+name = "National Academy of Sciences"
+statement = ["National Academy of Sciences"]
+acronyms = ["PNAS"]
+doi_prefixes = ["10.1073"]
+hosts = ["pnas.org"]
+
+[[publisher]]
+name = "American Association for the Advancement of Science"
+statement = ["American Association for the Advancement of Science"]
+acronyms = ["AAAS"]
+doi_prefixes = ["10.1126"]
+hosts = ["science.org", "sciencemag.org"]
+
+[[publisher]]
+name = "The Royal Society"
+statement = ["Royal Society Publishing", "royalsocietypublishing.org", "Proceedings of the Royal Society", "Philosophical Transactions of the Royal Society"]
+doi_prefixes = ["10.1098"]
+hosts = ["royalsocietypublishing.org"]
+
+[[publisher]]
+name = "The Company of Biologists"
+statement = ["Company of Biologists"]
+doi_prefixes = ["10.1242"]
+hosts = ["biologists.com", "biologists.org"]
+
+[[publisher]]
+name = "American Society for Microbiology"
+statement = ["American Society for Microbiology"]
+doi_prefixes = ["10.1128"]
+hosts = ["asm.org"]
+
+[[publisher]]
+name = "American Society for Cell Biology"
+statement = ["American Society for Cell Biology"]
+doi_prefixes = ["10.1187", "10.1091"]
+hosts = ["ascb.org", "lifescied.org", "molbiolcell.org"]
+
+[[publisher]]
+name = "Society for Neuroscience"
+statement = ["Society for Neuroscience"]
+doi_prefixes = ["10.1523"]
+hosts = ["jneurosci.org"]
+
+[[publisher]]
+name = "Genetics Society of America"
+statement = ["Genetics Society of America"]
+doi_prefixes = ["10.1534"]
+
+[[publisher]]
+name = "The American Association of Immunologists"
+statement = ["American Association of Immunologists"]
+doi_prefixes = ["10.4049"]
+hosts = ["jimmunol.org"]
+
+[[publisher]]
+name = "Cold Spring Harbor Laboratory"
+statement = ["Cold Spring Harbor Laboratory"]
+doi_prefixes = ["10.1101"]
+hosts = ["cshlp.org"]
+
+[[publisher]]
+name = "Rockefeller University Press"
+statement = ["Rockefeller University Press"]
+doi_prefixes = ["10.1083", "10.1084", "10.1085"]
+hosts = ["rupress.org"]
+
+[[publisher]]
+name = "Annual Reviews"
+statement = ["Annual Reviews"]
+doi_prefixes = ["10.1146"]
+hosts = ["annualreviews.org"]
+
+[[publisher]]
+name = "Ecological Society of America"
+statement = ["Ecological Society of America"]
+doi_prefixes = ["10.1890"]
+hosts = ["esajournals.org"]
+
+[[publisher]]
+name = "Botanical Society of America"
+statement = ["Botanical Society of America"]
+doi_prefixes = ["10.3732"]
+hosts = ["botany.org"]
+
+[[publisher]]
+name = "American Phytopathological Society"
+statement = ["American Phytopathological Society"]
+doi_prefixes = ["10.1094"]
+hosts = ["apsnet.org"]
+
+[[publisher]]
+name = "Wildlife Disease Association"
+statement = ["Wildlife Disease Association"]
+doi_prefixes = ["10.7589"]
+
+[[publisher]]
+name = "Canadian Science Publishing"
+statement = ["Canadian Science Publishing", "NRC Research Press"]
+doi_prefixes = ["10.1139"]
+hosts = ["cdnsciencepub.com", "nrcresearchpress.com"]
+
+[[publisher]]
+name = "JoVE"
+statement = ["Journal of Visualized Experiments"]
+acronyms = ["JoVE"]
+doi_prefixes = ["10.3791"]
+hosts = ["jove.com"]
+
+# ------------------------------ societies and institutes: medicine, health
+[[publisher]]
+name = "American Medical Association"
+statement = ["American Medical Association"]
+doi_prefixes = ["10.1001"]
+hosts = ["jamanetwork.com"]
+
+[[publisher]]
+name = "BMJ"
+statement = ["BMJ Publishing Group"]
+acronyms = ["BMJ"]
+doi_prefixes = ["10.1136"]
+hosts = ["bmj.com"]
+
+[[publisher]]
+name = "Massachusetts Medical Society"
+statement = ["Massachusetts Medical Society"]
+doi_prefixes = ["10.1056"]
+hosts = ["nejm.org"]
+
+[[publisher]]
+name = "American Public Health Association"
+statement = ["American Public Health Association"]
+doi_prefixes = ["10.2105"]
+hosts = ["aphapublications.org"]
+
+[[publisher]]
+name = "American Physiological Society"
+statement = ["American Physiological Society"]
+doi_prefixes = ["10.1152"]
+hosts = ["physiology.org"]
+
+# ------------- societies and institutes: social sciences and humanities
+[[publisher]]
+name = "American Psychological Association"
+statement = ["American Psychological Association"]
+acronyms = ["APA"]
+doi_prefixes = ["10.1037"]
+
+[[publisher]]
+name = "Hogrefe"
+statement = ["Hogrefe"]
+doi_prefixes = ["10.1027", "10.1024"]
+hosts = ["hogrefe.com"]
+
+[[publisher]]
+name = "Guilford Press"
+statement = ["Guilford Press", "Guilford Publications"]
+doi_prefixes = ["10.1521"]
+hosts = ["guilford.com", "guilfordjournals.com"]
+
+[[publisher]]
+name = "American Economic Association"
+statement = ["American Economic Association"]
+doi_prefixes = ["10.1257"]
+hosts = ["aeaweb.org"]
+
+[[publisher]]
+name = "American Accounting Association"
+statement = ["American Accounting Association"]
+doi_prefixes = ["10.2308"]
+hosts = ["aaahq.org"]
+
+[[publisher]]
+name = "Academy of Management"
+statement = ["Academy of Management"]
+doi_prefixes = ["10.5465"]
+hosts = ["aom.org"]
+
+[[publisher]]
+name = "American Educational Research Association"
+statement = ["American Educational Research Association"]
+acronyms = ["AERA"]
+doi_prefixes = ["10.3102"]
+
+[[publisher]]
+name = "National Council of Teachers of Mathematics"
+statement = ["National Council of Teachers of Mathematics"]
+acronyms = ["NCTM"]
+doi_prefixes = ["10.5951"]
+hosts = ["nctm.org"]
+
+[[publisher]]
+name = "American Library Association"
+statement = ["American Library Association"]
+doi_prefixes = ["10.5860"]
+hosts = ["ala.org"]
+
+[[publisher]]
+name = "EDUCAUSE"
+acronyms = ["EDUCAUSE"]
+hosts = ["educause.edu"]
+
+[[publisher]]
+name = "American Folklore Society"
+statement = ["American Folklore Society"]
+
+[[publisher]]
+name = "Philosophy Documentation Center"
+statement = ["Philosophy Documentation Center"]
+doi_prefixes = ["10.5840"]
+hosts = ["pdcnet.org"]
+
+[[publisher]]
+name = "Equinox Publishing"
+statement = ["Equinox Publishing"]
+doi_prefixes = ["10.1558"]
+hosts = ["equinoxpub.com"]
+
+[[publisher]]
+name = "Brepols"
+statement = ["Brepols"]
+doi_prefixes = ["10.1484"]
+hosts = ["brepols.net", "brepolsonline.net"]
+
+[[publisher]]
+name = "Mohr Siebeck"
+statement = ["Mohr Siebeck"]
+doi_prefixes = ["10.1628"]
+hosts = ["mohrsiebeck.com"]
+
+[[publisher]]
+name = "Franz Steiner Verlag"
+statement = ["Franz Steiner Verlag"]
+doi_prefixes = ["10.25162"]
+hosts = ["steiner-verlag.de"]

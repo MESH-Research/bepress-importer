@@ -19,8 +19,11 @@ def mapped_columns(sheet: SheetProfile, defaults: Defaults) -> set[str]:
     """Every source column consumed by a sheet's mapping rules."""
     mapped = {f.source for f in sheet.fields}
     for f in sheet.fields:
-        if "season_column" in f.args:
-            mapped.add(f.args["season_column"])
+        for arg, value in f.args.items():
+            if arg.endswith("_column") and isinstance(value, str):
+                mapped.add(value)
+            elif arg.endswith("_columns") and isinstance(value, list):
+                mapped.update(value)
     if sheet.resource_type and sheet.resource_type.column:
         mapped.add(sheet.resource_type.column)
     mapped |= {defaults.record_id_column, "issue"}
@@ -58,6 +61,8 @@ _TRANSFORM_NOTES = {
     "related_identifier": "linked as a related identifier",
     "prefixed_tag": "imported as a namespaced user-defined tag",
     "author_institution": "first non-empty author institution column",
+    "publisher": "publisher as given, else inferred from a copyright statement "
+                 "naming it, the DOI's registrant prefix or a link to its site",
 }
 
 

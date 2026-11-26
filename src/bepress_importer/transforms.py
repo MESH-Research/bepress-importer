@@ -14,21 +14,39 @@ from collections.abc import Callable
 
 from bepress_importer import edtf as edtf_module
 from bepress_importer.doi import doi_reference, extract_doi, is_resolver_address
+from bepress_importer.publishers import PublisherMatch, find_publisher
 
 Transform = Callable[[str, dict[str, str], dict], object | None]
 
 TRANSFORMS: dict[str, Transform] = {}
 _ACCEPTS_EMPTY: set[str] = set()
+_DERIVES: set[str] = set()
 
 
-def transform(name: str, accepts_empty: bool = False) -> Callable[[Transform], Transform]:
+def transform(
+    name: str, accepts_empty: bool = False, derives: bool = False
+) -> Callable[[Transform], Transform]:
+    """Register a transform.
+
+    accepts_empty: it runs even when its source cell is empty (it scans the row).
+    derives: a value it produces from an empty cell was worked out from other
+    columns, which is worth recording in the conversion log.
+    """
+
     def register(fn: Transform) -> Transform:
         TRANSFORMS[name] = fn
         if accepts_empty:
             _ACCEPTS_EMPTY.add(name)
+        if derives:
+            _DERIVES.add(name)
         return fn
 
     return register
+
+
+def derives_value(name: str) -> bool:
+    """True for transforms whose result from an empty cell should be logged."""
+    return name in _DERIVES
 
 
 def known_transforms() -> set[str]:
@@ -242,3 +260,29 @@ def license_url(value: str, row: dict[str, str], args: dict) -> object | None:
     if match:
         return [{"id": f"cc0-{match.group('version')}"}]
     return None
+
+
+def publisher_evidence(row: dict[str, str], args: dict) -> PublisherMatch | None:
+    """What the row's own columns say about who published it."""
+    statements = [
+        strip_html(row.get(column, ""), row, {}) or ""
+        for column in args.get("statement_columns", [])
+    ]
+    links = [row.get(column, "") for column in args.get("link_columns", [])]
+    doi_cells = [row.get(column, "") for column in args.get("doi_columns", [])] + links
+    dois = [doi for cell in doi_cells if (doi := extract_doi(cell))]
+    return find_publisher(statements, dois, links)
+
+
+@transform("publisher", accepts_empty=True, derives=True)
+def publisher(value: str, row: dict[str, str], args: dict) -> object | None:
+    """The row's publisher: as given, or else inferred from the row's traces.
+
+    args.statement_columns / doi_columns / link_columns name the columns to
+    search for a copyright statement naming the publisher, a DOI carrying its
+    prefix and a link to its platform (in that order of trust).
+    """
+    if value:
+        return value
+    match = publisher_evidence(row, args)
+    return match.name if match else None

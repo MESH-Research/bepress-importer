@@ -16,7 +16,7 @@ from bepress_importer.doi import is_resolver_address
 from bepress_importer.pids import doi_claim, keep_doi_as_link, promote_doi_pid
 from bepress_importer.profiles import Defaults, DoiPid, Profile, SheetProfile
 from bepress_importer.readers import Table, Workbook
-from bepress_importer.transforms import apply_transform
+from bepress_importer.transforms import apply_transform, derives_value, publisher_evidence
 
 
 @dataclass(frozen=True)
@@ -347,6 +347,16 @@ def _describe_change(
         return f"imported as a namespaced tag ({args.get('prefix', '')})"
     if transform == "author_institution":
         return "taken from the first non-empty author institution column"
+    if transform == "publisher":
+        match = publisher_evidence(row, args)
+        if match is None:
+            return "publisher as given in the export"
+        clue = {
+            "statement": f"the copyright statement names {match.detail!r}",
+            "doi": f"the DOI prefix {match.detail} belongs to this publisher",
+            "link": f"the link points at this publisher's site ({match.detail})",
+        }[match.evidence]
+        return f"no publisher given in the export — inferred: {clue}"
     if transform == "license_url":
         if value is None:
             return "license URL not recognized — value omitted"
@@ -387,7 +397,8 @@ def _convert_sheet(
                 args.setdefault("as_of", as_of)
             if mapping.transform:
                 value = apply_transform(mapping.transform, raw, row, args)
-                if raw and value != raw:
+                derived = not raw and value is not None and derives_value(mapping.transform)
+                if (raw or derived) and value != raw:
                     value_changes.append(
                         ValueChange(
                             collection=collection,
