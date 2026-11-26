@@ -108,7 +108,6 @@ class TestJournalArticlesGroup:
     def test_publication_statement_becomes_copyright(self, profile):
         mapping = field(block(profile, "fac_journ"), "/metadata/copyright")
         assert mapping.source == "pub_statement"
-        assert mapping.transform == "strip_html"
 
     def test_pub_link_and_doi_accumulate_into_identifiers(self, profile):
         sheet = block(profile, "fac_journ")
@@ -299,3 +298,189 @@ class TestEndToEndRouting:
         ]
         assert "Withdrawn" not in all_titles
         assert routed_result.unmatched_sheets == ["Field Names"]
+
+
+IMPORT_COLUMNS = (
+    *COLUMNS, "doi", "pub_link", "pub_statement", "publisher", "src_journal",
+)
+
+
+def import_row(**overrides):
+    row = {column: "" for column in IMPORT_COLUMNS}
+    row.update(
+        state="published", author1_fname="Ada", author1_lname="Lovelace",
+        publication="fac_journ", document_type="article", title="An article",
+        publication_date="2020-01-01",
+    )
+    row.update(overrides)
+    return row
+
+
+def convert_rows(profile, *rows):
+    table = Table(name="Content Inventory", columns=IMPORT_COLUMNS, rows=tuple(rows))
+    return convert_workbook(Workbook(tables=(table,)), profile, as_of=AS_OF)
+
+
+def records_by_id(result):
+    return {
+        next(
+            i["identifier"] for i in r["metadata"]["identifiers"] if i["scheme"] == "import-recid"
+        ): r
+        for records in result.collections.values()
+        for r in records
+    }
+
+
+class TestExistingDoisBecomePids:
+    """KC Works must be told about a DOI a work already has, in `pids`."""
+
+    @pytest.mark.parametrize(
+        "cells",
+        [
+            {"doi": "10.1016/j.jmps.2018.02.012"},
+            {"doi": "https://doi.org/10.1016/j.jmps.2018.02.012"},
+            {"pub_link": "https://doi.org/10.1016/j.jmps.2018.02.012"},
+            {"pub_link": "http://dx.doi.org/10.1016/j.jmps.2018.02.012"},
+            {"pub_link": "https://dx.doi.org/10.1016/j.jmps.2018.02.012"},
+            {"pub_link": "dx.doi.org/10.1016/j.jmps.2018.02.012"},
+            {
+                "doi": "10.1016/j.jmps.2018.02.012",
+                "pub_link": "https://doi.org/10.1016/j.jmps.2018.02.012",
+            },
+        ],
+    )
+    def test_journal_article_doi_is_registered_as_an_external_pid(self, profile, cells):
+        record = records_by_id(convert_rows(profile, import_row(context_key="1", **cells)))["1"]
+        assert record["pids"] == {
+            "doi": {"identifier": "10.1016/j.jmps.2018.02.012", "provider": "external"}
+        }
+        assert record["metadata"]["identifiers"] == [
+            {"identifier": "1", "scheme": "import-recid"}
+        ]
+
+    def test_rows_outside_the_journal_group_get_the_same_treatment(self, profile):
+        row = import_row(
+            context_key="1", publication="fac_books", document_type="book",
+            pub_link="https://doi.org/10.1093/oxfordhb/9780195396706.013.0020",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["pids"]["doi"] == {
+            "identifier": "10.1093/oxfordhb/9780195396706.013.0020", "provider": "external",
+        }
+
+    def test_publisher_page_stays_an_identifier_and_no_pid_is_invented(self, profile):
+        link = "https://www.sciencedirect.com/science/article/pii/S0195666317300491"
+        record = records_by_id(
+            convert_rows(profile, import_row(context_key="1", pub_link=link))
+        )["1"]
+        assert "pids" not in record
+        assert {"identifier": link, "scheme": "url"} in record["metadata"]["identifiers"]
+
+    def test_no_record_keeps_a_doi_scheme_identifier(self, profile):
+        result = convert_rows(
+            profile,
+            import_row(context_key="1", doi="10.1016/j.jmps.2018.02.012"),
+            import_row(context_key="2", doi="Unknown"),
+            import_row(context_key="3", doi="PMID: 21506449"),
+        )
+        for record in records_by_id(result).values():
+            assert all(i["scheme"] != "doi" for i in record["metadata"]["identifiers"])
+
+
+class TestPublisherIsFilledIn:
+    def test_copyright_naming_a_publisher_sets_the_publisher(self, profile):
+        statement = (
+            "If you would like to request permissions directly from Taylor & Francis, "
+            "please email your request directly to permissionrequest@tandf.co.uk."
+        )
+        record = records_by_id(
+            convert_rows(profile, import_row(context_key="1", pub_statement=statement))
+        )["1"]
+        assert record["metadata"]["publisher"] == "Taylor & Francis"
+        assert record["metadata"]["copyright"] == statement
+
+    @pytest.mark.parametrize(
+        "cells, publisher",
+        [
+            ({"pub_statement": "© 2019 IEEE. Personal use is permitted."}, "IEEE"),
+            ({"pub_statement": "in accordance with Wiley Terms and Conditions"}, "Wiley"),
+            ({"doi": "10.1016/j.jmps.2018.02.012"}, "Elsevier"),
+            ({"pub_link": "https://www.tandfonline.com/toc/rsgj20/current"}, "Taylor & Francis"),
+        ],
+    )
+    def test_journal_article_publisher_is_inferred(self, profile, cells, publisher):
+        record = records_by_id(convert_rows(profile, import_row(context_key="1", **cells)))["1"]
+        assert record["metadata"]["publisher"] == publisher
+
+    def test_an_article_with_no_trace_of_its_publisher_has_none(self, profile):
+        record = records_by_id(convert_rows(profile, import_row(context_key="1")))["1"]
+        assert "publisher" not in record["metadata"]
+
+    def test_a_publisher_named_in_the_export_is_kept(self, profile):
+        row = import_row(
+            context_key="1", publication="griot-books", document_type="book",
+            publisher="Bucknell University Press", pub_link="https://doi.org/10.1016/x.1",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["publisher"] == "Bucknell University Press"
+
+
+class TestCopyrightHoldsOnlyRightsStatements:
+    ABSTRACT = (
+        "Animals learn to prefer and increase consumption of flavors paired with "
+        "postingestive nutrient sensing. Analogous effects have been difficult to observe."
+    )
+
+    def test_open_access_is_a_reasonable_copyright_value(self, profile):
+        record = records_by_id(
+            convert_rows(profile, import_row(context_key="1", pub_statement="Open Access"))
+        )["1"]
+        assert record["metadata"]["copyright"] == "Open Access"
+
+    def test_an_abstract_never_lands_in_copyright(self, profile):
+        result = convert_rows(profile, import_row(context_key="1", pub_statement=self.ABSTRACT))
+        record = records_by_id(result)["1"]
+        assert "copyright" not in record["metadata"]
+        assert record["metadata"]["description"] == self.ABSTRACT
+        assert [i.record_id for i in result.issues] == ["1"]
+
+    def test_the_real_abstract_is_not_displaced(self, profile):
+        row = import_row(
+            context_key="1", pub_statement=self.ABSTRACT, abstract="The real abstract."
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["description"] == "The real abstract."
+
+
+class TestCleanedDocumentTypes:
+    """Bucknell's cleaned export names some types the way KC Works does."""
+
+    @pytest.mark.parametrize("collection", ["fac_journ", "inventory"])
+    @pytest.mark.parametrize(
+        "document_type, resource_type",
+        [
+            ("poeticWork", "textDocument-poeticWork"),
+            ("review", "textDocument-review"),
+            ("essay", "textDocument-essay"),
+            ("book", "textDocument-book"),
+            ("bookSection", "textDocument-bookSection"),
+            ("onlinePublication", "textDocument-onlinePublication"),
+            ("interactiveResource", "other-interactiveResource"),
+            ("videoRecording", "audiovisual-videoRecording"),
+            ("musicalRecording", "audiovisual-musicalRecording"),
+            ("patent", "other-patent"),
+            ("proceedingsPaper", "textDocument-conferenceProceeding"),
+            ("textDocument/other", "textDocument-other"),
+        ],
+    )
+    def test_kc_works_style_type_names_are_understood(
+        self, profile, collection, document_type, resource_type
+    ):
+        publication = "fac_journ" if collection == "fac_journ" else "fac_pubs"
+        result = convert_rows(
+            profile,
+            import_row(context_key="1", publication=publication, document_type=document_type),
+        )
+        record = records_by_id(result)["1"]
+        assert record["metadata"]["resource_type"] == {"id": resource_type}
+        assert result.issues == []
