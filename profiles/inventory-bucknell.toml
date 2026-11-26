@@ -73,6 +73,24 @@ season_style = "edtf-season"
 [defaults.doi_pid]
 provider = "external"
 
+# Creators' affiliations carry a ROR id ({"id": "…"}) instead of the name
+# wherever the institution is certain.
+#   - Bucknell's id is fixed here and never looked up. An affiliation counts
+#     as Bucknell when it is one of these names, or has one as a
+#     comma-separated part ("Biology Department, Bucknell University"). Joint
+#     bodies such as the Geisinger-Bucknell institute are deliberately not
+#     listed.
+#   - every other affiliation is put to the ROR API's affiliation matcher and
+#     replaced only when ROR itself marks one organisation as its chosen match,
+#     at score 1.0, with no other organisation scoring as high. Answers are
+#     cached (see `convert --ror-cache`), so each text is asked about once.
+[defaults.affiliations]
+ror_lookup = true
+min_score = 1.0
+
+  [defaults.affiliations.ror_ids]
+  "00fc1qt65" = ["Bucknell University", "Bucknell", "Bucknell U", "Bucknell Univ"]
+
 # corporate authors appear only in the `authors` JSON column (their numbered
 # author columns are blank), so that column is read for them
 [defaults.author_columns]

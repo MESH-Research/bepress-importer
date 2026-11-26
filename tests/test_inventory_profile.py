@@ -622,3 +622,27 @@ class TestDoiStrandedInAVolumeCell:
         )
         record = records_by_id(convert_rows(profile, row))["1"]
         assert record["pids"]["doi"]["identifier"] == "10.1016/J.JMPS.2018.02.012"
+
+
+class TestAffiliationRorIds:
+    @pytest.mark.parametrize(
+        "institution",
+        [
+            "Bucknell University", "Bucknell", "bucknell", "Bucknell U", "Bucknell U.",
+            "Bucknell Univ", "Biology Department, Bucknell University",
+        ],
+    )
+    def test_bucknell_always_carries_its_ror_id(self, profile, institution):
+        row = import_row(context_key="1", author1_institution=institution)
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["creators"][0]["affiliations"] == [{"id": "00fc1qt65"}]
+
+    def test_a_joint_institute_is_not_taken_for_bucknell(self, profile):
+        name = "Geisinger-Bucknell Autism and Developmental Medicine Institute"
+        row = import_row(context_key="1", author1_institution=name)
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["creators"][0]["affiliations"] == [{"name": name}]
+
+    def test_other_institutions_are_looked_up_in_ror(self, profile):
+        assert profile.defaults.affiliations.ror_lookup is True
+        assert profile.defaults.affiliations.min_score == 1.0
