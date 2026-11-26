@@ -286,3 +286,53 @@ def publisher(value: str, row: dict[str, str], args: dict) -> object | None:
         return value
     match = publisher_evidence(row, args)
     return match.name if match else None
+
+
+# words that only a rights statement uses, and words it shares with ordinary
+# prose (which therefore only count in a short text)
+_RIGHTS_WORDS = re.compile(
+    r"copyright|©|ⓒ|\(c\)\s*(?:19|20)\d\d|licen[cs]e|permission|all rights reserved|"
+    r"creative commons|\bcc[ -]by\b|\bcc0\b|public domain|open access|fair use|personal use",
+    re.IGNORECASE,
+)
+_PUBLISHING_WORDS = re.compile(
+    r"\bpublished\b|\bpublication\b|\bpublisher|\bversion\b|\bmanuscript\b|"
+    r"\bpre-?print\b|\bpost-?print\b|\baccepted\b|\bembargo|\breprint|\bdeposit|"
+    r"available (?:online )?at\b|first appeared|\bpeer[- ]review|\brights\b",
+    re.IGNORECASE,
+)
+_STATEMENT_LENGTH = 400
+
+
+def reads_as_rights_statement(text: str) -> bool:
+    """True when `text` is the kind of thing a copyright field should hold:
+    a copyright line, a licence, a permission or version note — as opposed to
+    an abstract, a journal title or a stray remark."""
+    if _RIGHTS_WORDS.search(text):
+        return True
+    return len(text) <= _STATEMENT_LENGTH and bool(_PUBLISHING_WORDS.search(text))
+
+
+@transform("rights_statement")
+def rights_statement(value: str, row: dict[str, str], args: dict) -> object | None:
+    """Copyright/rights text with HTML removed — kept only if it reads as one."""
+    text = strip_html(value, row, {})
+    return text if text and reads_as_rights_statement(text) else None
+
+
+@transform("misplaced_description")
+def misplaced_description(value: str, row: dict[str, str], args: dict) -> object | None:
+    """Descriptive prose typed into a rights column, rescued as a description.
+
+    Yields the text only when it does not read as a rights statement, is
+    long enough to be prose (args.min_length, default 80 characters) and none
+    of args.unless_columns (the row's real abstract) has content.
+    """
+    text = strip_html(value, row, {})
+    if not text or reads_as_rights_statement(text):
+        return None
+    if len(text) < args.get("min_length", 80):
+        return None
+    if any(row.get(column, "").strip() for column in args.get("unless_columns", [])):
+        return None
+    return text

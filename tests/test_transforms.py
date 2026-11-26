@@ -403,3 +403,110 @@ class TestLicenseUrl:
 
     def test_unknown_url_is_omitted(self):
         assert apply("license_url", "https://example.org/my-license") is None
+
+
+ABSTRACT_IN_THE_WRONG_COLUMN = (
+    "Animals learn to prefer and increase consumption of flavors paired with postingestive "
+    "nutrient sensing. Analogous effects have been difficult to observe in human studies. "
+    "One possibility is experience with the modern, processed diet impairs learning."
+)
+ISSUE_BLURB = (
+    "The second issue of Latin American Literature highlights the Caribbean and queer "
+    "literature from across Latin America, featuring dossiers of two writers."
+)
+
+
+class TestRightsStatement:
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "Open Access",
+            "© ASCE",
+            "Copyright © 2010 American Physical Society",
+            "Copyright 2012, Anna Kell",
+            "(c) 2019 The Authors",
+            "This article © 2012 Massachusetts Institute of Technology",
+            ("If you would like to request permissions directly from Taylor & Francis, please "
+            "email your request directly to permissionrequest@tandf.co.uk."),
+            ("This is an open access article under the CC BY license "
+            "(http://creativecommons.org/licenses/by/4.0/)."),
+            'This is the "Submitted Version".',
+            "The final publication is available at www.springerlink.com",
+            ("First published in Mathematics of Computation in Vol. 81, No. 280, Oct. 2012, "
+            "published by the American Mathematical Society."),
+            ("This is an Accepted Manuscript of an article published by Taylor & Francis in "
+            "Regional Studies on September 2022, available at: 10.1080/00343404.2022.2108543 ."),
+            ("This pre-print represents the version of the article initially submitted to the "
+            "publisher, before peer review or other editorial processes."),
+            "The publisher does not allow for Open Access availability of the published article.",
+            "Published in Politics & Gender, 2023 All rights reserved",
+        ],
+    )
+    def test_rights_and_version_statements_are_kept(self, statement):
+        assert apply("rights_statement", statement) == statement
+
+    @pytest.mark.parametrize(
+        "junk",
+        [
+            "Unsure",
+            "Teaching Children Mathematics",
+            ABSTRACT_IN_THE_WRONG_COLUMN,
+            ISSUE_BLURB,
+            "We compare (a) sweet, (b) salty and (c) bitter flavours across three cohorts.",
+        ],
+    )
+    def test_text_that_is_not_a_rights_statement_is_omitted(self, junk):
+        assert apply("rights_statement", junk) is None
+
+    def test_a_long_passage_needs_more_than_a_passing_word_to_count(self):
+        # an abstract that merely mentions a "published" study is still an abstract
+        passage = (
+            "Previously published studies disagree on this point. " * 9
+            + "We therefore measured the effect directly in three cohorts."
+        )
+        assert apply("rights_statement", passage) is None
+
+    def test_html_is_removed_from_a_kept_statement(self):
+        assert apply("rights_statement", "<p>Copyright &copy; 2010 <b>APS</b></p>") == (
+            "Copyright © 2010 APS"
+        )
+
+
+class TestMisplacedDescription:
+    ARGS = {"unless_columns": ["abstract"]}  # noqa: RUF012
+
+    def test_prose_in_a_rights_column_is_rescued_when_there_is_no_abstract(self):
+        result = apply(
+            "misplaced_description", ABSTRACT_IN_THE_WRONG_COLUMN,
+            row={"abstract": ""}, args=dict(self.ARGS),
+        )
+        assert result == ABSTRACT_IN_THE_WRONG_COLUMN
+
+    def test_the_real_abstract_is_never_displaced(self):
+        result = apply(
+            "misplaced_description", ABSTRACT_IN_THE_WRONG_COLUMN,
+            row={"abstract": "The actual abstract."}, args=dict(self.ARGS),
+        )
+        assert result is None
+
+    @pytest.mark.parametrize(
+        "statement", ["Open Access", "Copyright © 2010 American Physical Society"]
+    )
+    def test_a_rights_statement_is_not_a_description(self, statement):
+        assert apply("misplaced_description", statement, row={"abstract": ""},
+                     args=dict(self.ARGS)) is None
+
+    @pytest.mark.parametrize("remark", ["Unsure", "Teaching Children Mathematics"])
+    def test_a_stray_remark_is_not_a_description(self, remark):
+        assert apply("misplaced_description", remark, row={"abstract": ""},
+                     args=dict(self.ARGS)) is None
+
+    def test_the_length_that_counts_as_prose_is_adjustable(self):
+        args = {"unless_columns": ["abstract"], "min_length": 10}
+        assert apply("misplaced_description", "A short remark.", row={}, args=args) == (
+            "A short remark."
+        )
+
+    def test_html_is_removed(self):
+        result = apply("misplaced_description", f"<p>{ISSUE_BLURB}</p>", row={}, args={})
+        assert result == ISSUE_BLURB
