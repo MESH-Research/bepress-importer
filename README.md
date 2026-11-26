@@ -84,6 +84,9 @@ uv run bepress-importer upload wrangled/fac_journ.json --collection-id <id>
 
 `upload` writes `<file>.receipts.json` mapping each record's `import-recid` to
 the created KC Works record URL (or its per-field errors on failure).
+A receipts file left by an earlier run is never overwritten: it is first
+renamed with the time it was written, e.g.
+`fac_journ.receipts.20261126-143210.json`, and the new run then writes its own.
 
 `upload-client` is a drop-in alternative that sends the same file through
 MESH's [`kcworks-import-client`](https://github.com/MESH-Research/kcworks-import-client)

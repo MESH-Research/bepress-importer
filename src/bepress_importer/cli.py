@@ -10,7 +10,7 @@ import click
 from bepress_importer.convert import convert_workbook
 from bepress_importer.profiles import ProfileError, detect_profile, load_profile
 from bepress_importer.readers import Workbook, read_workbook
-from bepress_importer.serialize import write_json
+from bepress_importer.serialize import backup_existing, write_json
 from bepress_importer.transforms import known_transforms
 
 
@@ -546,8 +546,11 @@ def _finish_upload(result, metadata_file: str, receipts_path, reporter,
     receipts_path = Path(
         receipts_path or Path(metadata_file).with_suffix(".receipts.json")
     )
+    backup = backup_existing(receipts_path)
     write_json(receipts_path, result.receipts)
     if reporter:
+        if backup:
+            reporter.say(f"Kept the receipts of the previous run as {backup}")
         if result.success:
             reporter.say("Import reported success (HTTP 201); every record should now "
                          "have a record_url in the receipts file")
@@ -557,6 +560,8 @@ def _finish_upload(result, metadata_file: str, receipts_path, reporter,
                          "the KCWorks maintainer will need")
         reporter.say(f"Writing per-record receipts to {receipts_path}")
     click.echo(headline)
+    if backup:
+        click.echo(f"previous receipts kept → {backup}")
     click.echo(f"receipts → {receipts_path}")
     if not result.success:
         raise SystemExit(1)
