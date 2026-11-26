@@ -160,11 +160,11 @@ def describe_sheet(
             )
             if defaults.affiliations.ror_lookup:
                 builders["creators"] += (
-                    ", or when the ROR API's affiliation matcher returns a chosen "
-                    f"match scoring at least {defaults.affiliations.min_score:g} and the "
-                    "affiliation text is that organisation's official name (optionally "
-                    "followed by its own city, region or country), a name no equally "
-                    "scored organisation shares — every other affiliation stays as text"
+                    ", or when the ROR API returns an organisation with every word of "
+                    "the affiliation text in its name, or in its name and its place "
+                    "together (aliases and acronyms do not count; two organisations "
+                    "matching equally well are not chosen between) — every other "
+                    "affiliation stays as text"
                 )
     if sheet.contributors:
         builders["contributors"] = (

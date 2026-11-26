@@ -85,7 +85,7 @@ def _ror_resolver(profile, cache_path: str, lookup: bool) -> ror_api.RorResolver
     if settings is None:
         return None
     if not settings.ror_lookup:
-        return ror_api.RorResolver(known=settings.ror_ids, min_score=settings.min_score)
+        return ror_api.RorResolver(known=settings.ror_ids)
     cache = None
     if lookup or Path(cache_path).exists():
         cache = ror_api.RorCache(cache_path)
@@ -99,8 +99,7 @@ def _ror_resolver(profile, cache_path: str, lookup: bool) -> ror_api.RorResolver
         return ror_api.fetch_affiliation(text)
 
     return ror_api.RorResolver(
-        known=settings.ror_ids, cache=cache, fetch=fetch if lookup else None,
-        min_score=settings.min_score,
+        known=settings.ror_ids, cache=cache, fetch=fetch if lookup else None
     )
 
 
@@ -133,8 +132,8 @@ def convert(
     collection) plus a report.json of conversion issues.
 
     When the profile turns on ROR lookups, creators' affiliations are matched
-    against the ROR API (only near-certain matches are used) and the answers
-    cached in --ror-cache.
+    against the ROR API (a result is used only when it has every word of the
+    affiliation text) and the answers cached in --ror-cache.
     """
     workbook = read_workbook(input_file)
     if sheets:

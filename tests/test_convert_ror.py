@@ -40,6 +40,9 @@ PENN_STATE = {
             "organization": {
                 "id": "https://ror.org/04p491231", "status": "active",
                 "names": [{"types": ["ror_display"], "value": "Pennsylvania State University"}],
+                "locations": [
+                    {"geonames_details": {"name": "State College", "country_code": "US"}}
+                ],
             },
         }
     ]
@@ -48,7 +51,7 @@ NOTHING = {"items": []}
 
 
 def fetch(text):
-    return {"The Pennsylvania State University": PENN_STATE}.get(text, NOTHING)
+    return PENN_STATE if text.startswith("Pennsylvania State University") else NOTHING
 
 
 def author(n, institution, fname="A", lname=None):
@@ -79,7 +82,7 @@ class TestRorIdsOnAffiliations:
 
     def test_a_certain_api_match_carries_its_id(self, tmp_path):
         result = convert(
-            tmp_path, author(1, "The Pennsylvania State University"), ror=RorResolver(fetch=fetch)
+            tmp_path, author(1, "Pennsylvania State University"), ror=RorResolver(fetch=fetch)
         )
         assert affiliations_of(result) == [[{"id": "04p491231"}]]
 
@@ -91,7 +94,7 @@ class TestRorIdsOnAffiliations:
 
     def test_each_creator_is_settled_separately(self, tmp_path):
         cells = (
-            author(1, "Bucknell University") | author(2, "The Pennsylvania State University")
+            author(1, "Bucknell University") | author(2, "Pennsylvania State University")
             | author(3, "Lewisburg Neighborhoods") | author(4, "")
         )
         resolver = RorResolver(known={"00fc1qt65": ["Bucknell University"]}, fetch=fetch)
@@ -101,19 +104,19 @@ class TestRorIdsOnAffiliations:
         ]
 
     def test_without_a_resolver_only_the_profiles_own_ids_are_used(self, tmp_path):
-        cells = author(1, "Bucknell") | author(2, "The Pennsylvania State University")
+        cells = author(1, "Bucknell") | author(2, "Pennsylvania State University")
         assert affiliations_of(convert(tmp_path, cells)) == [
-            [{"id": "00fc1qt65"}], [{"name": "The Pennsylvania State University"}],
+            [{"id": "00fc1qt65"}], [{"name": "Pennsylvania State University"}],
         ]
 
     def test_a_profile_that_does_not_ask_for_ror_ids_keeps_every_affiliation_as_text(
         self, tmp_path
     ):
         resolver = RorResolver(known={"00fc1qt65": ["Bucknell University"]}, fetch=fetch)
-        cells = author(1, "Bucknell University") | author(2, "The Pennsylvania State University")
+        cells = author(1, "Bucknell University") | author(2, "Pennsylvania State University")
         result = convert(tmp_path, cells, ror=resolver, affiliations="")
         assert affiliations_of(result) == [
-            [{"name": "Bucknell University"}], [{"name": "The Pennsylvania State University"}],
+            [{"name": "Bucknell University"}], [{"name": "Pennsylvania State University"}],
         ]
         assert result.value_changes == []
 
@@ -121,8 +124,8 @@ class TestRorIdsOnAffiliations:
         def down(text):
             raise RorUnavailable("down")
 
-        result = convert(tmp_path, author(1, "The Pennsylvania State University"), ror=RorResolver(fetch=down))
-        assert affiliations_of(result) == [[{"name": "The Pennsylvania State University"}]]
+        result = convert(tmp_path, author(1, "Pennsylvania State University"), ror=RorResolver(fetch=down))
+        assert affiliations_of(result) == [[{"name": "Pennsylvania State University"}]]
 
 
 class TestRorChangesAreLogged:
@@ -132,7 +135,7 @@ class TestRorChangesAreLogged:
 
     def test_each_affiliation_given_an_id_is_one_logged_change(self, tmp_path):
         cells = (
-            author(1, "Bucknell University") | author(3, "The Pennsylvania State University")
+            author(1, "Bucknell University") | author(3, "Pennsylvania State University")
             | author(4, "Lewisburg Neighborhoods")
         )
         logged = {c.source: c for c in self.changes(tmp_path, cells).value_changes}
@@ -140,28 +143,36 @@ class TestRorChangesAreLogged:
         bucknell, penn = logged["author1_institution"], logged["author3_institution"]
         assert (bucknell.raw, bucknell.result) == ("Bucknell University", {"id": "00fc1qt65"})
         assert bucknell.target == "/metadata/creators/0/affiliations/0"
-        assert (penn.raw, penn.result) == ("The Pennsylvania State University", {"id": "04p491231"})
+        assert (penn.raw, penn.result) == ("Pennsylvania State University", {"id": "04p491231"})
         assert penn.target == "/metadata/creators/1/affiliations/0"
         assert penn.record_id == "1"
 
+    def test_the_reason_says_when_the_place_was_needed_to_match(self, tmp_path):
+        by_name = self.changes(tmp_path, author(1, "Pennsylvania State University"))
+        by_place = self.changes(
+            tmp_path, author(1, "Pennsylvania State University - State College")
+        )
+        assert by_name.value_changes[0].reason != by_place.value_changes[0].reason
+        assert by_place.value_changes[0].result == {"id": "04p491231"}
+
     def test_the_reason_names_the_organisation_the_api_matched(self, tmp_path):
-        change = self.changes(tmp_path, author(1, "The Pennsylvania State University")).value_changes[0]
+        change = self.changes(tmp_path, author(1, "Pennsylvania State University")).value_changes[0]
         assert "Pennsylvania State University" in change.reason
 
     def test_the_reason_tells_a_fixed_id_from_a_looked_up_one(self, tmp_path):
-        cells = author(1, "Bucknell University") | author(2, "The Pennsylvania State University")
+        cells = author(1, "Bucknell University") | author(2, "Pennsylvania State University")
         fixed, looked_up = self.changes(tmp_path, cells).value_changes
         assert "ROR API" in looked_up.reason
         assert "ROR API" not in fixed.reason
 
     def test_the_log_text_carries_a_line_for_the_change(self, tmp_path):
-        result = self.changes(tmp_path, author(1, "The Pennsylvania State University"))
+        result = self.changes(tmp_path, author(1, "Pennsylvania State University"))
         payload = conversion_log.build_payload(
             "in.xlsx", "p", "2026-11-26", result.sheet_docs, result.value_changes, result.issues
         )
         lines = [
             line for line in conversion_log.render_text(payload).splitlines()
-            if "04p491231" in line or "The Pennsylvania State University" in line
+            if "04p491231" in line or "Pennsylvania State University" in line
         ]
         assert lines
 

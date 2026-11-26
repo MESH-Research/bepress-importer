@@ -152,9 +152,7 @@ def offline_ror_resolver(defaults: Defaults) -> RorResolver | None:
     """A resolver for the ROR ids the profile itself fixes: no cache, no lookups."""
     if defaults.affiliations is None:
         return None
-    return RorResolver(
-        known=defaults.affiliations.ror_ids, min_score=defaults.affiliations.min_score
-    )
+    return RorResolver(known=defaults.affiliations.ror_ids)
 
 
 def _use_ror_ids(
@@ -177,10 +175,15 @@ def _use_ror_ids(
                     f"as {match.ror_id} in the profile"
                 )
             else:
+                found_in = (
+                    "its name and its place together"
+                    if match.detail == "name and place"
+                    else "its name"
+                )
                 reason = (
                     f"affiliation replaced by its ROR id — matched to "
-                    f"{match.name or match.ror_id} by the ROR API (its chosen match, "
-                    f"score {match.score:g}; the text is the organisation's official name)"
+                    f"{match.name or match.ror_id}, a ROR API result with every word "
+                    f"of the text in {found_in}"
                 )
             changes.append(
                 ValueChange(

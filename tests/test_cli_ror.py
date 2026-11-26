@@ -12,7 +12,7 @@ from bepress_importer.cli import cli
 CSV = (
     "context_key,title,author1_fname,author1_lname,author1_institution,"
     "author2_fname,author2_lname,author2_institution\n"
-    "1,First,Ada,Lovelace,Bucknell University,Alan,Turing,The Pennsylvania State University\n"
+    "1,First,Ada,Lovelace,Bucknell University,Alan,Turing,Pennsylvania State University\n"
     "2,Second,Grace,Hopper,Lewisburg Neighborhoods,,,\n"
 )
 PROFILE = """
@@ -48,7 +48,7 @@ PENN_STATE = {
 
 
 def answering(text, **kwargs):
-    return PENN_STATE if text == "The Pennsylvania State University" else {"items": []}
+    return PENN_STATE if text == "Pennsylvania State University" else {"items": []}
 
 
 def forbidden(text, **kwargs):
@@ -114,7 +114,7 @@ class TestConvertLooksAffiliationsUp:
         result, affiliations = convert(workspace, "--no-ror-lookup")
         assert result.exit_code == 0, result.output
         assert affiliations == [
-            [{"id": "00fc1qt65"}], [{"name": "The Pennsylvania State University"}],
+            [{"id": "00fc1qt65"}], [{"name": "Pennsylvania State University"}],
             [{"name": "Lewisburg Neighborhoods"}],
         ]
 
@@ -130,7 +130,7 @@ class TestConvertLooksAffiliationsUp:
         monkeypatch.setattr(ror, "fetch_affiliation", forbidden)
         result, affiliations = convert(workspace)
         assert result.exit_code == 0, result.output
-        assert affiliations[:2] == [[{"id": "00fc1qt65"}], [{"name": "The Pennsylvania State University"}]]
+        assert affiliations[:2] == [[{"id": "00fc1qt65"}], [{"name": "Pennsylvania State University"}]]
 
     def test_an_unreachable_api_does_not_fail_the_conversion_but_is_reported(
         self, workspace, monkeypatch
@@ -138,7 +138,7 @@ class TestConvertLooksAffiliationsUp:
         monkeypatch.setattr(ror, "fetch_affiliation", unreachable)
         result, affiliations = convert(workspace)
         assert result.exit_code == 0, result.output
-        assert affiliations[1] == [{"name": "The Pennsylvania State University"}]
+        assert affiliations[1] == [{"name": "Pennsylvania State University"}]
         assert "ROR" in result.output
 
     def test_a_lookup_that_failed_is_tried_again_next_time(self, workspace, monkeypatch):

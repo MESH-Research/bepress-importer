@@ -645,4 +645,3 @@ class TestAffiliationRorIds:
 
     def test_other_institutions_are_looked_up_in_ror(self, profile):
         assert profile.defaults.affiliations.ror_lookup is True
-        assert profile.defaults.affiliations.min_score == 1.0

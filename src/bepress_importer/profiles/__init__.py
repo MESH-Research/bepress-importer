@@ -122,13 +122,11 @@ class Affiliations:
 
     ror_ids: {ror_id: names} — institutions whose id is fixed here, so no
     lookup is ever made for them. ror_lookup: look every other affiliation up
-    in the ROR API (cached). min_score: the score the API's chosen match must
-    reach to be used.
+    in the ROR API (cached).
     """
 
     ror_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
     ror_lookup: bool = False
-    min_score: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -245,7 +243,6 @@ def _parse_affiliations(raw: dict | None, path: Path) -> Affiliations | None:
     return Affiliations(
         ror_ids=ror_ids,
         ror_lookup=bool(raw.get("ror_lookup", False)),
-        min_score=float(raw.get("min_score", 1.0)),
     )
 
 

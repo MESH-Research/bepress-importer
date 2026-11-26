@@ -80,19 +80,18 @@ provider = "external"
 #     comma-separated part ("Biology Department, Bucknell University"). Joint
 #     bodies such as the Geisinger-Bucknell institute are deliberately not
 #     listed.
-#   - every other affiliation is put to the ROR API's affiliation matcher and
-#     replaced only when ROR itself marks one organisation as its chosen match
-#     at score 1.0 AND the text is that organisation's official name (alone, or
-#     followed by its own city, region or country). ROR's choice alone is not
-#     trusted: it also fires on aliases and shared words ("NC State" comes
-#     back as North Central State College). Answers are cached (see
-#     `convert --ror-cache`), so each text is asked about once.
-#   - an institution the rule is too strict for ("Penn State University" is
-#     an alias, not the official name) can be fixed by hand: add its ROR id
-#     and the spellings used to ror_ids below.
+#   - every other affiliation is put to the ROR API's affiliation matcher.
+#     Of the organisations it returns, one is taken when every word of the
+#     affiliation text is in its name, or in its name and its place together
+#     ("University of Minnesota - Duluth" → University of Minnesota, Duluth,
+#     although ROR's own first choice is the Twin Cities university). Aliases
+#     and acronyms do not count ("NC State" is an alias of North Central State
+#     College). A text no result answers to stays as text. Answers are cached
+#     (see `convert --ror-cache`), so each text is asked about once.
+#   - an institution the rule leaves as text can be fixed by hand: add its
+#     ROR id and the spellings used to ror_ids below.
 [defaults.affiliations]
 ror_lookup = true
-min_score = 1.0
 
   [defaults.affiliations.ror_ids]
   "00fc1qt65" = ["Bucknell University", "Bucknell", "Bucknell U", "Bucknell Univ"]
