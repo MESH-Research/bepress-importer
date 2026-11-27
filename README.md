@@ -318,6 +318,11 @@ A creator's affiliation is written as `{"id": "<ror id>"}` in place of
 The details of that rule:
 
 - words are compared without case, accents or punctuation, and `&` is "and";
+- `the`, `at`, `main` and `campus` are passed over, in the text and in the
+  name (`The Pennsylvania State University`, `University of Illinois at
+  Urbana-Champaign`, `University of Pittsburgh - Main Campus`);
+- a single word is taken only when it is the organisation's whole name
+  (`TRIUMF`). `Exeter` is not enough to pick Phillips Exeter Academy by;
 - a name is the organisation's display name or a label in another language.
   Aliases and acronyms do not count, because organisations share them
   (`NC State` is an alias of North Central State College);

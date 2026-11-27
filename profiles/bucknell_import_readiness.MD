@@ -152,6 +152,13 @@ original text and the organisation matched.
   when the text is its whole name followed by words from its place.
   Otherwise the text stays. Aliases and acronyms do not count, and ROR's own
   "chosen" flag is not used.
+- **"the", "at", "main" and "campus" are passed over**, in the text and in
+  the name, so "The Pennsylvania State University", "University of Illinois
+  at Urbana-Champaign" and "University of Pittsburgh - Main Campus" reach
+  their organisations.
+- **A single word is taken only when it is the organisation's whole name**
+  ("TRIUMF"). "Exeter" had been matched to Phillips Exeter Academy, the only
+  result ROR returned, and now stays as text.
 
 ROR's chosen flag was tried first and dropped. At full score it returned
 North Central State College for "NC State", the University of California
@@ -162,25 +169,23 @@ Berkeley and Duluth from further down ROR's list and leaves "NC State" alone.
 | | Affiliations | Distinct texts |
 |---|---:|---:|
 | Bucknell, fixed id | 4,969 | 8 |
-| ROR id: the text is the organisation's name | 1,280 | 403 |
-| ROR id: every word is in a longer name | 40 | 23 |
-| ROR id: the name followed by its place | 93 | 29 |
-| Left as text: a word no result has | 482 | 210 |
-| Left as text: two results match equally | 20 | 11 |
+| ROR id: every word of the text is in the name | 1,421 | 443 |
+| ROR id: the name followed by its place | 107 | 33 |
+| Left as text: no result answers to the text | 387 | 200 |
 | Left as text: ROR returned nothing | 53 | 26 |
 
 Matches to look at, because the text is shorter than the name it was
-matched to: "Exeter" → Phillips Exeter Academy (the only result ROR
-returned); "Université Paris" → Université Paris 8; "University of
-Tennessee" → University of Tennessee at Knoxville.
+matched to: "Université Paris" → Université Paris 8; "University of
+Tennessee" → University of Tennessee at Knoxville; "Moscow International
+University" → International University in Moscow.
 
 The most frequent texts left as text, which could be confirmed and added to
-`ror_ids` in the profile: "University of Illinois at Urbana-Champaign" (36,
-the name in ROR has no "at"), "Penn State University" (29, an alias), "The
-Pennsylvania State University" (28, the name in ROR has no "The"), "SUNY
-University at Buffalo" (10), "University of New Hampshire - Main Campus"
-(10). Texts with two equal results include "York University", "University of
-Georgia", "Northeastern University" and "National Institutes of Health".
+`ror_ids` in the profile: "Penn State University" (29, an alias),
+"Massachusetts General Hospital and Harvard Medical School" (16, two
+organisations), "SUNY University at Buffalo" (10), "SUNY Oswego" (8),
+"Rutgers University - Newark" (8). Texts left because two results match
+equally include "York University", "University of Georgia", "Northeastern
+University" and "National Institutes of Health".
 
 Lookups are cached in `ror-cache.sqlite3` (git-ignored), so a re-run makes no
 requests and is byte-identical. The before/after tables below were taken

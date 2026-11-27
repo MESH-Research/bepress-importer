@@ -162,9 +162,10 @@ def describe_sheet(
                 builders["creators"] += (
                     ", or when the ROR API returns an organisation with every word of "
                     "the affiliation text in its name, or in its name and its place "
-                    "together (aliases and acronyms do not count; two organisations "
-                    "matching equally well are not chosen between) — every other "
-                    "affiliation stays as text"
+                    "together (aliases and acronyms do not count; \"the\", \"at\", "
+                    "\"main\" and \"campus\" are passed over; a single word must be "
+                    "the whole name; two organisations matching equally well are not "
+                    "chosen between) — every other affiliation stays as text"
                 )
     if sheet.contributors:
         builders["contributors"] = (
