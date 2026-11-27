@@ -1,3 +1,32 @@
+## 1.7.0 (2026-11-27)
+
+### Feat
+
+- **ror**: pass over filler words and leave a single word that is not a whole name
+- **ror**: take the ROR result that has every word of the affiliation text
+- **profiles**: ROR ids for affiliations in the Bucknell inventory
+- **cli**: look affiliations up in the ROR API during convert
+- **convert**: give creators' affiliations ROR ids when the profile asks
+- **ror**: match affiliation text to ROR ids with a cached API lookup
+- **transforms,builders,profiles**: recover stranded DOIs, drop class years from names
+- **profiles**: second pass on Bucknell inventory output after review
+- **convert**: report omitted journal cells and dates taken from a fallback
+- **transforms,builders**: tidy titles, tags, links, creators and journal cells
+- **profiles**: make Bucknell inventory output import-ready for KC Works
+- **convert**: report statements kept out of the copyright field
+- **transforms**: keep only genuine rights statements in copyright
+- **publishers**: infer a missing publisher from the row's own traces
+- **convert**: register existing DOIs in pids.doi when the profile asks
+- **transforms**: never emit a doi identifier that is not a DOI
+- **pids**: move a record's existing DOI into an external pids.doi block
+- **doi**: read bare DOIs out of messy spreadsheet cells
+
+### Fix
+
+- **ror**: a place may only follow the organisation's whole name
+- **ror**: a rival only unsettles a match when it bears the same name
+- **ror**: require the affiliation text to be the organisation's official name
+
 ## 1.6.0 (2026-11-26)
 
 ### Feat
