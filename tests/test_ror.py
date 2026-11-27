@@ -232,6 +232,50 @@ class TestBestMatch:
         assert match_for("NC State", payload) is None
         assert match_for("Appalachian State University, Boone, NC", payload) == "051m4vc48"
 
+    @pytest.mark.parametrize(
+        "text, name",
+        [
+            ("The Pennsylvania State University", "Pennsylvania State University"),
+            ("Pennsylvania State University", "The Pennsylvania State University"),
+            ("University of Illinois at Urbana-Champaign",
+             "University of Illinois Urbana-Champaign"),
+            ("University of New Hampshire - Main Campus", "University of New Hampshire"),
+            ("Pennsylvania State University, Main Campus", "Pennsylvania State University"),
+        ],
+    )
+    def test_words_that_say_nothing_about_which_organisation_are_passed_over(self, text, name):
+        assert match_for(text, response(item("04p491231", name))) == "04p491231"
+
+    def test_a_campus_named_by_its_place_is_the_organisation_there(self):
+        payload = response(
+            item("00cvxb145", "University of Washington", place=("Seattle", "Washington", "WA", *US))
+        )
+        found = best_match("University of Washington - Seattle Campus", read_response(payload))
+        assert (found[0].ror_id, found[1]) == ("00cvxb145", "name and place")
+
+    def test_a_name_differing_only_in_such_words_is_the_closest_name(self):
+        payload = response(
+            item("05gq02987", "University of Texas at Austin Dell Medical School"),
+            item("00hj54h04", "The University of Texas at Austin"),
+        )
+        assert match_for("University of Texas at Austin", payload) == "00hj54h04"
+
+    def test_a_text_of_nothing_but_such_words_is_left_alone(self):
+        assert match_for("The Main Campus", response(item("x1", "Main Campus Research"))) is None
+
+    @pytest.mark.parametrize("text", ["Exeter", "The Exeter", "Exeter."])
+    def test_a_single_word_is_too_little_to_pick_a_longer_name_by(self, text):
+        # the only result ROR returned; the author may have meant the university
+        payload = response(item("03cde6p20", "Phillips Exeter Academy", 1.0, chosen=True))
+        assert match_for(text, payload) is None
+
+    def test_a_single_word_that_is_the_whole_name_is_taken(self):
+        payload = response(
+            item("03kgj4539", "TRIUMF", 1.0, chosen=True),
+            item("x2", "TRIUMF Innovations", 0.8),
+        )
+        assert match_for("TRIUMF", payload) == "03kgj4539"
+
     def test_a_place_alone_is_not_a_match(self):
         assert match_for("Fort Collins", COLORADO) is None
 

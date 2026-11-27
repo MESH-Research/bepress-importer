@@ -73,6 +73,16 @@ def _words(text: str) -> list[str]:
     return re.sub(r"[^a-z0-9]+", " ", plain.replace("&", " and ")).split()
 
 
+#: Words that say nothing about which organisation is meant: a text or a
+#: name may have them or lack them ("The Pennsylvania State University",
+#: "University of Pittsburgh - Main Campus").
+_PASSED_OVER = frozenset({"the", "at", "main", "campus"})
+
+
+def _telling_words(text: str) -> set[str]:
+    return set(_words(text)) - _PASSED_OVER
+
+
 def best_match(text: str, lookup: RorLookup) -> tuple[RorCandidate, str] | None:
     """The returned organisation that the text names, and how ("name" or
     "name and place"); None when no result has all of the text's words.
@@ -82,13 +92,18 @@ def best_match(text: str, lookup: RorLookup) -> tuple[RorCandidate, str] | None:
     ("X University - Fort Collins"). A place may not stand in for part of the
     name: "NC State" is not Appalachian State University, though "State" is
     in its name and NC is where it is. Aliases and acronyms do not count:
-    several organisations can share one ("NC State"). Among
-    results that qualify, a name holding every word beats one helped by its
-    place, and then the name with the fewest words the text lacks wins, so
-    "Miami University" is not taken for the University of Miami. Two results
-    that qualify equally well are left alone.
+    several organisations can share one ("NC State"). Words that say nothing
+    about which organisation is meant ("the", "at", "main", "campus") are
+    passed over on both sides.
+
+    Among results that qualify, a name holding every word beats one helped by
+    its place, and then the name with the fewest words the text lacks wins,
+    so "Miami University" is not taken for the University of Miami. Two
+    results that qualify equally well are left alone. A single word is too
+    little to pick a longer name by ("Exeter" is not Phillips Exeter
+    Academy): it is taken only when it is the whole name.
     """
-    wanted = set(_words(text))
+    wanted = _telling_words(text)
     if not wanted:
         return None
     fits = []
@@ -96,10 +111,10 @@ def best_match(text: str, lookup: RorLookup) -> tuple[RorCandidate, str] | None:
         place_words = {word for place in candidate.places for word in _words(place)}
         best = None
         for name in candidate.names:
-            name_words = set(_words(name))
-            if wanted <= name_words:
+            name_words = _telling_words(name)
+            if wanted == name_words or (wanted < name_words and len(wanted) > 1):
                 fit = (0, len(name_words - wanted))
-            elif name_words <= wanted <= name_words | place_words:
+            elif name_words and name_words <= wanted <= name_words | place_words:
                 fit = (1, 0)  # the whole name, followed by where it is
             else:
                 continue
