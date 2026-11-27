@@ -249,11 +249,111 @@ accumulate into one list target (e.g. `doi` and `isbn` both appending to
 
 Transforms available to profiles: `edtf_date` (with season support and
 fallback columns for empty cells, e.g. an event's `start_date`),
-`identifier` (DOI normalization, segment splitting), `split`, `strip_html`,
-`additional_description`, `url`, `embargo`, `language_list`, `license_url`.
+`identifier` (DOI normalization, segment splitting; `doi_references` turns a
+resolver link into a DOI, `find_url` recovers the link from a messy cell,
+`unproxy` strips a library proxy from the host), `doi_mention` (a DOI typed
+into some other cell), `publisher`, `rights_statement`,
+`misplaced_description`, `plain_text`, `split` (one separator or several),
+`strip_html`, `additional_description`, `url`, `embargo`, `language_list`,
+`license_url`.
 Composite builders: `authorN_*` columns → `creators` (corporate detection
-included), advisor columns → `contributors`, journal/imprint column groups →
-`journal:journal` / `imprint:imprint` custom fields.
+included; `json_column` names a JSON author list to read corporate authors
+from), advisor columns → `contributors`, journal/imprint column groups →
+`journal:journal` / `imprint:imprint` custom fields (page, volume and issue
+cells that hold remarks instead of numbers are left out and reported).
+
+### Existing DOIs and publishers
+
+KC Works registers a DOI for every imported record that does not bring one,
+and refuses to do so without `metadata.publisher`. Two profile features
+address this:
+
+```toml
+[defaults.doi_pid]
+provider = "external"       # keep_identifiers = true also leaves the entries in identifiers
+```
+
+moves each record's own DOI out of `metadata.identifiers` into
+`pids.doi` (`{"identifier": "10.…", "provider": "external"}`), in bare form.
+A DOI claimed by several records is registered for none of them and reported.
+
+```toml
+[[sheet.field]]
+source = "publisher"
+target = "/metadata/publisher"
+transform = "publisher"
+args = { statement_columns = ["pub_statement"], doi_columns = ["doi"], link_columns = ["pub_link"] }
+```
+
+fills an empty publisher from a copyright statement that names one, the
+DOI's prefix or the link's host, using the list in
+`src/bepress_importer/vocab/publishers.toml` (add publishers there, not in
+code). `fallback = "…"` names a publisher for rows nothing identifies.
+
+### ROR ids for affiliations
+
+```toml
+[defaults.affiliations]
+ror_lookup = true            # look the others up in the ROR API
+
+  [defaults.affiliations.ror_ids]
+  "00fc1qt65" = ["Bucknell University", "Bucknell", "Bucknell U"]
+```
+
+A creator's affiliation is written as `{"id": "<ror id>"}` in place of
+`{"name": "…"}` when an organisation can be settled on:
+
+- **ids fixed in the profile** (`ror_ids`) are applied without any lookup, to
+  an affiliation that is one of the listed names or has one as a
+  comma-separated part (`Biology Department, Bucknell University`);
+- **every other affiliation**, when `ror_lookup` is on, is put to the ROR
+  API's [affiliation matcher](https://ror.readme.io/v2/docs/api-affiliation).
+  Of the organisations it returns (up to ten), one is taken when **every
+  word of the affiliation text is in its name**, or when the text is its
+  whole name followed by words from its place (city, region, country):
+  `University of Minnesota - Duluth` → University of Minnesota, Duluth;
+  `Colorado State University - Fort Collins` → Colorado State University.
+  A text no result answers to stays as text.
+
+The details of that rule:
+
+- words are compared without case, accents or punctuation, and `&` is "and";
+- `the`, `at`, `main` and `campus` are passed over, in the text and in the
+  name (`The Pennsylvania State University`, `University of Illinois at
+  Urbana-Champaign`, `University of Pittsburgh - Main Campus`);
+- a single word is taken only when it is the organisation's whole name
+  (`TRIUMF`). `Exeter` is not enough to pick Phillips Exeter Academy by;
+- a name is the organisation's display name or a label in another language.
+  Aliases and acronyms do not count, because organisations share them
+  (`NC State` is an alias of North Central State College);
+- ROR's own `chosen` flag and score are not used: its first choice for
+  `University of Minnesota - Duluth` is the Twin Cities university;
+- when several results have all the words, the name with the fewest other
+  words wins (`Miami University` is not the University of Miami);
+- two results that match equally well (ROR has two organisations called
+  `University of Georgia`) are not chosen between: the text stays;
+- a place cannot stand in for part of the name (`NC State` is not
+  Appalachian State University, although NC is where it is).
+
+Each replacement is one line in the conversion log, with the original text
+and the organisation it was matched to. An institution the rule leaves as
+text can be confirmed by hand and added to `ror_ids`.
+
+Lookups are remembered in a SQLite file (`--ror-cache`, default
+`ror-cache.sqlite3`; table `affiliation_lookup`). The whole answer is kept,
+including answers with no organisation, so each text is asked about once, a
+re-run is offline and byte-identical, and the rule can change without asking
+again. A lookup that fails (network down, rate limit that does not clear) is
+reported, left as text and tried again on the next run.
+`convert --no-ror-lookup` never contacts the API: it uses the profile's ids
+and whatever the cache already holds. Only the affiliation text is sent to
+ROR.
+
+`rights_statement` keeps a statement out of `metadata.copyright` unless it
+reads as one; `misplaced_description` can route such prose to the
+description instead. `profiles/bucknell_import_readiness.MD` records how
+these were applied to the Bucknell inventory and what the output looks like
+before and after.
 
 ## Vocabularies
 

@@ -19,8 +19,11 @@ def mapped_columns(sheet: SheetProfile, defaults: Defaults) -> set[str]:
     """Every source column consumed by a sheet's mapping rules."""
     mapped = {f.source for f in sheet.fields}
     for f in sheet.fields:
-        if "season_column" in f.args:
-            mapped.add(f.args["season_column"])
+        for arg, value in f.args.items():
+            if arg.endswith("_column") and isinstance(value, str):
+                mapped.add(value)
+            elif arg.endswith("_columns") and isinstance(value, list):
+                mapped.update(value)
     if sheet.resource_type and sheet.resource_type.column:
         mapped.add(sheet.resource_type.column)
     mapped |= {defaults.record_id_column, "issue"}
@@ -29,6 +32,8 @@ def mapped_columns(sheet: SheetProfile, defaults: Defaults) -> set[str]:
     for n in range(1, defaults.authors.max + 1):
         for part in AUTHOR_PARTS:
             mapped.add(f"{defaults.authors.prefix}{n}_{part}")
+    if defaults.authors.json_column:
+        mapped.add(defaults.authors.json_column)
     if sheet.contributors:
         for n in range(1, sheet.contributors.max + 1):
             mapped.add(f"{sheet.contributors.prefix}{n}")
@@ -58,6 +63,15 @@ _TRANSFORM_NOTES = {
     "related_identifier": "linked as a related identifier",
     "prefixed_tag": "imported as a namespaced user-defined tag",
     "author_institution": "first non-empty author institution column",
+    "rights_statement": "HTML removed; kept only if it reads as a copyright, "
+                        "licence, permission or version statement",
+    "misplaced_description": "descriptive prose found in a rights column, used as "
+                             "the description when the record has no abstract",
+    "publisher": "publisher as given, else inferred from a copyright statement "
+                 "naming it, the DOI's registrant prefix or a link to its site",
+    "doi_mention": "a DOI typed into this cell is recorded as the work's DOI; "
+                   "any other value is left to the column's ordinary mapping",
+    "plain_text": "markup removed, whitespace collapsed",
 }
 
 
@@ -104,6 +118,15 @@ def describe_sheet(
             "target": "metadata.identifiers (scheme url)",
             "why": "preserves the canonical Bepress landing page",
         }
+    if defaults.doi_pid:
+        doc["doi_pid"] = {
+            "provider": defaults.doi_pid.provider,
+            "keep_identifiers": defaults.doi_pid.keep_identifiers,
+            "target": "pids.doi",
+            "why": "a work that already has a DOI keeps it as its KC Works DOI "
+                   "instead of being issued a second one; a DOI that several "
+                   "records claim is registered for none of them",
+        }
     if sheet.resource_type:
         rt = sheet.resource_type
         doc["resource_type"] = (
@@ -120,6 +143,30 @@ def describe_sheet(
             "metadata.creators (personal names assembled as 'Family, Given'; "
             "is_corporate rows become organizational creators)"
         )
+        if defaults.authors.json_column:
+            builders["creators"] += (
+                f"; corporate authors listed only in the {defaults.authors.json_column} "
+                "JSON column are added at their position"
+            )
+        if defaults.affiliations is not None:
+            fixed = ", ".join(
+                f"{names[0]} = {ror_id}"
+                for ror_id, names in defaults.affiliations.ror_ids.items()
+                if names
+            )
+            builders["creators"] += (
+                "; an affiliation is replaced by its ROR id ({\"id\": …}) when the "
+                f"profile fixes the institution's id ({fixed or 'none fixed'})"
+            )
+            if defaults.affiliations.ror_lookup:
+                builders["creators"] += (
+                    ", or when the ROR API returns an organisation with every word of "
+                    "the affiliation text in its name, or in its name and its place "
+                    "together (aliases and acronyms do not count; \"the\", \"at\", "
+                    "\"main\" and \"campus\" are passed over; a single word must be "
+                    "the whole name; two organisations matching equally well are not "
+                    "chosen between) — every other affiliation stays as text"
+                )
     if sheet.contributors:
         builders["contributors"] = (
             f"{sheet.contributors.prefix}1..{sheet.contributors.prefix}"
@@ -212,6 +259,18 @@ def render_text(payload: dict) -> str:
             lines += [
                 f"  {doc['source_url']['column']} → {doc['source_url']['target']}",
                 f"    why: {doc['source_url']['why']}",
+            ]
+        if "doi_pid" in doc:
+            dp = doc["doi_pid"]
+            kept = "kept in" if dp["keep_identifiers"] else "removed from"
+            lines += [
+                "Existing DOIs:",
+                (
+                    "  a record's DOI (a doi identifier, or a link to doi.org / "
+                    f"dx.doi.org) → {dp['target']} (provider {dp['provider']}), in bare "
+                    f"form; the DOI entries are {kept} metadata.identifiers"
+                ),
+                f"    why: {dp['why']}",
             ]
         if "select" in doc:
             sel = doc["select"]

@@ -180,3 +180,38 @@ def test_resource_type_requires_column_or_constant(tmp_path):
     )
     with pytest.raises(ProfileError, match="resource_type"):
         load_profile(path)
+
+
+AFFILIATION_PROFILE = """
+[profile]
+name = "p"
+[defaults.affiliations]
+ror_lookup = true
+[defaults.affiliations.ror_ids]
+"00fc1qt65" = ["Bucknell University", "Bucknell"]
+[[sheet]]
+match = "x"
+"""
+
+
+class TestAffiliationSettings:
+    def test_fixed_ror_ids_and_lookup_settings_are_read(self, tmp_path):
+        settings = load_profile(write_profile(tmp_path, AFFILIATION_PROFILE)).defaults.affiliations
+        assert dict(settings.ror_ids) == {"00fc1qt65": ("Bucknell University", "Bucknell")}
+        assert settings.ror_lookup is True
+
+    def test_lookups_are_off_unless_stated(self, tmp_path):
+        body = AFFILIATION_PROFILE.replace("ror_lookup = true\n", "")
+        settings = load_profile(write_profile(tmp_path, body)).defaults.affiliations
+        assert settings.ror_lookup is False
+
+    def test_a_profile_that_says_nothing_about_affiliations_has_no_settings(self, tmp_path):
+        path = write_profile(tmp_path, '[profile]\nname = "p"\n[[sheet]]\nmatch = "x"\n')
+        assert load_profile(path).defaults.affiliations is None
+
+    def test_a_ror_id_needs_a_list_of_names(self, tmp_path):
+        body = AFFILIATION_PROFILE.replace(
+            '["Bucknell University", "Bucknell"]', '"Bucknell University"'
+        )
+        with pytest.raises(ProfileError):
+            load_profile(write_profile(tmp_path, body))

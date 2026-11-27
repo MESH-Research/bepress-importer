@@ -108,14 +108,13 @@ class TestJournalArticlesGroup:
     def test_publication_statement_becomes_copyright(self, profile):
         mapping = field(block(profile, "fac_journ"), "/metadata/copyright")
         assert mapping.source == "pub_statement"
-        assert mapping.transform == "strip_html"
 
     def test_pub_link_and_doi_accumulate_into_identifiers(self, profile):
         sheet = block(profile, "fac_journ")
         sources = {
             f.source for f in sheet.fields if f.target == "/metadata/identifiers"
         }
-        assert sources == {"pub_link", "doi"}
+        assert {"pub_link", "doi"} <= sources
 
 
 class TestThesesGroups:
@@ -189,7 +188,7 @@ class TestPodcastsGroup:
 class TestCatchAllGroup:
     def test_event_rows_fall_back_to_their_start_date(self, profile):
         mapping = field(block(profile, "inventory"), "/metadata/publication_date")
-        assert mapping.args.get("fallback_columns") == ["start_date"]
+        assert mapping.args.get("fallback_columns")[0] == "start_date"
 
     def test_inventory_document_types_are_mapped(self, profile):
         rt = block(profile, "inventory").resource_type
@@ -299,3 +298,350 @@ class TestEndToEndRouting:
         ]
         assert "Withdrawn" not in all_titles
         assert routed_result.unmatched_sheets == ["Field Names"]
+
+
+IMPORT_COLUMNS = (
+    *COLUMNS, "doi", "pub_link", "pub_statement", "publisher", "src_journal",
+    "authors", "date_posted", "volnum", "issnum", "fpage", "lpage",
+)
+
+
+def import_row(**overrides):
+    row = {column: "" for column in IMPORT_COLUMNS}
+    row.update(
+        state="published", author1_fname="Ada", author1_lname="Lovelace",
+        publication="fac_journ", document_type="article", title="An article",
+        publication_date="2020-01-01",
+    )
+    row.update(overrides)
+    return row
+
+
+def convert_rows(profile, *rows):
+    table = Table(name="Content Inventory", columns=IMPORT_COLUMNS, rows=tuple(rows))
+    return convert_workbook(Workbook(tables=(table,)), profile, as_of=AS_OF)
+
+
+def records_by_id(result):
+    return {
+        next(
+            i["identifier"] for i in r["metadata"]["identifiers"] if i["scheme"] == "import-recid"
+        ): r
+        for records in result.collections.values()
+        for r in records
+    }
+
+
+class TestExistingDoisBecomePids:
+    """KC Works must be told about a DOI a work already has, in `pids`."""
+
+    @pytest.mark.parametrize(
+        "cells",
+        [
+            {"doi": "10.1016/j.jmps.2018.02.012"},
+            {"doi": "https://doi.org/10.1016/j.jmps.2018.02.012"},
+            {"pub_link": "https://doi.org/10.1016/j.jmps.2018.02.012"},
+            {"pub_link": "http://dx.doi.org/10.1016/j.jmps.2018.02.012"},
+            {"pub_link": "https://dx.doi.org/10.1016/j.jmps.2018.02.012"},
+            {"pub_link": "dx.doi.org/10.1016/j.jmps.2018.02.012"},
+            {
+                "doi": "10.1016/j.jmps.2018.02.012",
+                "pub_link": "https://doi.org/10.1016/j.jmps.2018.02.012",
+            },
+        ],
+    )
+    def test_journal_article_doi_is_registered_as_an_external_pid(self, profile, cells):
+        record = records_by_id(convert_rows(profile, import_row(context_key="1", **cells)))["1"]
+        assert record["pids"] == {
+            "doi": {"identifier": "10.1016/j.jmps.2018.02.012", "provider": "external"}
+        }
+        assert record["metadata"]["identifiers"] == [
+            {"identifier": "1", "scheme": "import-recid"}
+        ]
+
+    def test_rows_outside_the_journal_group_get_the_same_treatment(self, profile):
+        row = import_row(
+            context_key="1", publication="fac_books", document_type="book",
+            pub_link="https://doi.org/10.1093/oxfordhb/9780195396706.013.0020",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["pids"]["doi"] == {
+            "identifier": "10.1093/oxfordhb/9780195396706.013.0020", "provider": "external",
+        }
+
+    def test_publisher_page_stays_an_identifier_and_no_pid_is_invented(self, profile):
+        link = "https://www.sciencedirect.com/science/article/pii/S0195666317300491"
+        record = records_by_id(
+            convert_rows(profile, import_row(context_key="1", pub_link=link))
+        )["1"]
+        assert "pids" not in record
+        assert {"identifier": link, "scheme": "url"} in record["metadata"]["identifiers"]
+
+    def test_no_record_keeps_a_doi_scheme_identifier(self, profile):
+        result = convert_rows(
+            profile,
+            import_row(context_key="1", doi="10.1016/j.jmps.2018.02.012"),
+            import_row(context_key="2", doi="Unknown"),
+            import_row(context_key="3", doi="PMID: 21506449"),
+        )
+        for record in records_by_id(result).values():
+            assert all(i["scheme"] != "doi" for i in record["metadata"]["identifiers"])
+
+
+class TestPublisherIsFilledIn:
+    def test_copyright_naming_a_publisher_sets_the_publisher(self, profile):
+        statement = (
+            "If you would like to request permissions directly from Taylor & Francis, "
+            "please email your request directly to permissionrequest@tandf.co.uk."
+        )
+        record = records_by_id(
+            convert_rows(profile, import_row(context_key="1", pub_statement=statement))
+        )["1"]
+        assert record["metadata"]["publisher"] == "Taylor & Francis"
+        assert record["metadata"]["copyright"] == statement
+
+    @pytest.mark.parametrize(
+        "cells, publisher",
+        [
+            ({"pub_statement": "© 2019 IEEE. Personal use is permitted."}, "IEEE"),
+            ({"pub_statement": "in accordance with Wiley Terms and Conditions"}, "Wiley"),
+            ({"doi": "10.1016/j.jmps.2018.02.012"}, "Elsevier"),
+            ({"pub_link": "https://www.tandfonline.com/toc/rsgj20/current"}, "Taylor & Francis"),
+        ],
+    )
+    def test_journal_article_publisher_is_inferred(self, profile, cells, publisher):
+        record = records_by_id(convert_rows(profile, import_row(context_key="1", **cells)))["1"]
+        assert record["metadata"]["publisher"] == publisher
+
+    def test_an_article_with_no_trace_of_its_publisher_has_none(self, profile):
+        record = records_by_id(convert_rows(profile, import_row(context_key="1")))["1"]
+        assert "publisher" not in record["metadata"]
+
+    def test_a_publisher_named_in_the_export_is_kept(self, profile):
+        row = import_row(
+            context_key="1", publication="griot-books", document_type="book",
+            publisher="Bucknell University Press", pub_link="https://doi.org/10.1016/x.1",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["publisher"] == "Bucknell University Press"
+
+
+class TestCopyrightHoldsOnlyRightsStatements:
+    ABSTRACT = (
+        "Animals learn to prefer and increase consumption of flavors paired with "
+        "postingestive nutrient sensing. Analogous effects have been difficult to observe."
+    )
+
+    def test_open_access_is_a_reasonable_copyright_value(self, profile):
+        record = records_by_id(
+            convert_rows(profile, import_row(context_key="1", pub_statement="Open Access"))
+        )["1"]
+        assert record["metadata"]["copyright"] == "Open Access"
+
+    def test_an_abstract_never_lands_in_copyright(self, profile):
+        result = convert_rows(profile, import_row(context_key="1", pub_statement=self.ABSTRACT))
+        record = records_by_id(result)["1"]
+        assert "copyright" not in record["metadata"]
+        assert record["metadata"]["description"] == self.ABSTRACT
+        assert [i.record_id for i in result.issues] == ["1"]
+
+    def test_the_real_abstract_is_not_displaced(self, profile):
+        row = import_row(
+            context_key="1", pub_statement=self.ABSTRACT, abstract="The real abstract."
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["description"] == "The real abstract."
+
+
+class TestCleanedDocumentTypes:
+    """Bucknell's cleaned export names some types the way KC Works does."""
+
+    @pytest.mark.parametrize("collection", ["fac_journ", "inventory"])
+    @pytest.mark.parametrize(
+        "document_type, resource_type",
+        [
+            ("poeticWork", "textDocument-poeticWork"),
+            ("review", "textDocument-review"),
+            ("essay", "textDocument-essay"),
+            ("book", "textDocument-book"),
+            ("bookSection", "textDocument-bookSection"),
+            ("onlinePublication", "textDocument-onlinePublication"),
+            ("interactiveResource", "other-interactiveResource"),
+            ("videoRecording", "audiovisual-videoRecording"),
+            ("musicalRecording", "audiovisual-musicalRecording"),
+            ("patent", "other-patent"),
+            ("proceedingsPaper", "textDocument-conferenceProceeding"),
+            ("textDocument/other", "textDocument-other"),
+        ],
+    )
+    def test_kc_works_style_type_names_are_understood(
+        self, profile, collection, document_type, resource_type
+    ):
+        publication = "fac_journ" if collection == "fac_journ" else "fac_pubs"
+        result = convert_rows(
+            profile,
+            import_row(context_key="1", publication=publication, document_type=document_type),
+        )
+        record = records_by_id(result)["1"]
+        assert record["metadata"]["resource_type"] == {"id": resource_type}
+        assert result.issues == []
+
+
+class TestSensibleValues:
+    """Things a reader of the imported record would otherwise trip over."""
+
+    @pytest.mark.parametrize(
+        "publication, document_type",
+        [
+            ("fac_journ", "article"), ("masters_theses", "masters_thesis"),
+            ("honors_theses", "honors_thesis"), ("books", "book"),
+            ("bucknell-press", "book"), ("dssrf", "digital_project"),
+            ("bucknell-occupied", "interview"), ("fac_pubs", "article"),
+            ("bucknell_digital_scholarship", "digital_project"),
+        ],
+    )
+    def test_titles_are_plain_text_in_every_group(self, profile, publication, document_type):
+        row = import_row(
+            context_key="1", publication=publication, document_type=document_type,
+            title="Measuring H<sub>2</sub>S over <em>Solanum</em>  sites",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["title"] == "Measuring H2S over Solanum sites"
+
+    @pytest.mark.parametrize(
+        "publication, document_type",
+        [
+            ("fac_journ", "article"), ("masters_theses", "masters_thesis"),
+            ("honors_theses", "honors_thesis"), ("books", "book"),
+            ("bucknell-press", "book"), ("dssrf", "digital_project"),
+            ("bucknell-occupied", "interview"), ("fac_pubs", "article"),
+            ("bucknell_digital_scholarship", "digital_project"),
+        ],
+    )
+    def test_keywords_typed_with_semicolons_become_separate_tags(
+        self, profile, publication, document_type
+    ):
+        row = import_row(
+            context_key="1", publication=publication, document_type=document_type,
+            keywords="aluminum alloys; cold spray; corrosion resistance",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["custom_fields"]["kcr:user_defined_tags"][:3] == [
+            "aluminum alloys", "cold spray", "corrosion resistance",
+        ]
+
+    def test_library_proxy_links_are_made_public(self, profile):
+        row = import_row(
+            context_key="1",
+            pub_link="http://www.jstor.org.ezproxy.bucknell.edu/stable/40157007",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert {"identifier": "http://www.jstor.org/stable/40157007", "scheme": "url"} in (
+            record["metadata"]["identifiers"]
+        )
+
+    def test_corporate_authors_are_not_lost(self, profile):
+        row = import_row(
+            context_key="1", publication="newsletters", document_type="newsletters",
+            author1_fname="", author1_lname="",
+            authors='[{"CORPORATE_AUTHOR": "Bucknell University Environmental Center", '
+                    '"IS_CORPORATE_AUTHOR": "1"}]',
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert [c["person_or_org"] for c in record["metadata"]["creators"]] == [
+            {"type": "organizational", "name": "Bucknell University Environmental Center"}
+        ]
+
+    def test_an_undated_item_takes_the_date_it_was_posted(self, profile):
+        row = import_row(
+            context_key="1", publication="humanities-review", document_type="journalArticle",
+            publication_date="", date_posted="2017-10-23 06:30:18",
+        )
+        result = convert_rows(profile, row)
+        assert records_by_id(result)["1"]["metadata"]["publication_date"] == "2017-10-23"
+        assert result.issues == []
+
+    def test_an_events_own_start_date_is_preferred_to_the_posting_date(self, profile):
+        row = import_row(
+            context_key="1", publication="lit_pubs", document_type="conference",
+            publication_date="", start_date="2012-11-17", date_posted="2017-10-23 06:30:18",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["publication_date"] == "2012-11-17"
+
+    def test_notes_in_volume_and_page_cells_are_left_out(self, profile):
+        row = import_row(
+            context_key="1", src_journal="J", volnum="Online; print edition forthcoming",
+            issnum="2", fpage="062105", lpage="not applicable",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["custom_fields"]["journal:journal"] == {
+            "title": "J", "issue": "2", "pages": "062105",
+        }
+
+
+class TestBucknellIsThePublisherOfItsOwnWork:
+    """Theses and Bucknell's own digital projects have no outside publisher;
+    KC Works needs one to register their DOIs."""
+
+    @pytest.mark.parametrize(
+        "publication, document_type",
+        [
+            ("masters_theses", "masters_thesis"), ("honors_theses", "honors_thesis_b"),
+            ("dssrf", "digital_project"), ("bucknell-occupied", "interview"),
+            ("bucknell_digital_scholarship", "digital_project"),
+        ],
+    )
+    def test_publisher_is_bucknell_university(self, profile, publication, document_type):
+        row = import_row(context_key="1", publication=publication, document_type=document_type)
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["publisher"] == "Bucknell University"
+
+    def test_the_press_keeps_its_own_imprint(self, profile):
+        row = import_row(context_key="1", publication="bucknell-press", document_type="book")
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["publisher"] == "Bucknell University Press"
+
+
+class TestDoiStrandedInAVolumeCell:
+    def test_it_is_registered_and_the_cell_is_not_used_as_a_volume(self, profile):
+        row = import_row(
+            context_key="1", src_journal="J",
+            volnum="Online First: doi:10.1177/1468087411424376",
+            issnum="Online First: doi:10.1177/1468087411424376",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["pids"]["doi"]["identifier"] == "10.1177/1468087411424376"
+        assert record["custom_fields"]["journal:journal"] == {"title": "J"}
+        assert record["metadata"]["publisher"] == "SAGE Publications"
+
+    def test_the_doi_column_still_takes_precedence(self, profile):
+        row = import_row(
+            context_key="1", doi="10.1016/J.JMPS.2018.02.012",
+            volnum="doi: 10.1016/j.jmps.2018.02.012",
+        )
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["pids"]["doi"]["identifier"] == "10.1016/J.JMPS.2018.02.012"
+
+
+class TestAffiliationRorIds:
+    @pytest.mark.parametrize(
+        "institution",
+        [
+            "Bucknell University", "Bucknell", "bucknell", "Bucknell U", "Bucknell U.",
+            "Bucknell Univ", "Biology Department, Bucknell University",
+        ],
+    )
+    def test_bucknell_always_carries_its_ror_id(self, profile, institution):
+        row = import_row(context_key="1", author1_institution=institution)
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["creators"][0]["affiliations"] == [{"id": "00fc1qt65"}]
+
+    def test_a_joint_institute_is_not_taken_for_bucknell(self, profile):
+        name = "Geisinger-Bucknell Autism and Developmental Medicine Institute"
+        row = import_row(context_key="1", author1_institution=name)
+        record = records_by_id(convert_rows(profile, row))["1"]
+        assert record["metadata"]["creators"][0]["affiliations"] == [{"name": name}]
+
+    def test_other_institutions_are_looked_up_in_ror(self, profile):
+        assert profile.defaults.affiliations.ror_lookup is True

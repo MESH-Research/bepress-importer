@@ -11,10 +11,20 @@ from bepress_importer.builders import (
     build_creators,
     build_imprint,
     build_journal,
+    creator_positions,
+    implausible_journal_values,
 )
-from bepress_importer.profiles import Defaults, Profile, SheetProfile
+from bepress_importer.doi import is_resolver_address
+from bepress_importer.pids import doi_claim, keep_doi_as_link, promote_doi_pid
+from bepress_importer.profiles import Defaults, DoiPid, Profile, SheetProfile
 from bepress_importer.readers import Table, Workbook
-from bepress_importer.transforms import apply_transform
+from bepress_importer.ror import RorResolver
+from bepress_importer.transforms import (
+    apply_transform,
+    derives_value,
+    is_opportunistic,
+    publisher_evidence,
+)
 
 
 @dataclass(frozen=True)
@@ -96,13 +106,22 @@ def _sort_key(record_id: str) -> tuple:
     return (0, int(record_id)) if record_id.isdigit() else (1, record_id)
 
 
-def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> ConversionResult:
+def convert_workbook(
+    workbook: Workbook, profile: Profile, as_of: str, ror: RorResolver | None = None
+) -> ConversionResult:
     """Convert every profile-matched sheet to a per-collection list of KC Works records.
 
     as_of: ISO date used for embargo-activity decisions; an explicit input so
     output is reproducible.
+    ror: resolves affiliation text to ROR ids when the profile asks for them;
+    left out, only the ids the profile itself fixes are used (no lookups).
     """
     result = ConversionResult()
+    origin: dict[int, str] = {}  # record → the sheet it came from, for late issues
+    if profile.defaults.affiliations is None:
+        ror = None
+    elif ror is None:
+        ror = offline_ror_resolver(profile.defaults)
     for table in workbook.tables:
         blocks = profile.match_sheets(table.name, columns=table.columns)
         if not blocks:
@@ -113,8 +132,9 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
             block_table, filter_doc = _apply_row_filter(block_table, block, profile.defaults)
             records = _convert_sheet(
                 block_table, block, profile.defaults, as_of, result.issues,
-                slug, result.value_changes,
+                slug, result.value_changes, ror=ror,
             )
+            origin.update((id(record), table.name) for record in records)
             result.collections.setdefault(slug, []).extend(records)
             result.collections[slug].sort(key=lambda r: _sort_key(_record_id(r)))
             doc = conversion_log.describe_sheet(
@@ -123,7 +143,140 @@ def convert_workbook(workbook: Workbook, profile: Profile, as_of: str) -> Conver
             if filter_doc:
                 doc["row_filter"] = filter_doc
             result.sheet_docs.append(doc)
+    if profile.defaults.doi_pid is not None:
+        _register_doi_pids(result, profile.defaults.doi_pid, origin)
     return result
+
+
+def offline_ror_resolver(defaults: Defaults) -> RorResolver | None:
+    """A resolver for the ROR ids the profile itself fixes: no cache, no lookups."""
+    if defaults.affiliations is None:
+        return None
+    return RorResolver(known=defaults.affiliations.ror_ids)
+
+
+def _use_ror_ids(
+    creators: list[dict], positions: list[int], prefix: str, ror: RorResolver,
+    collection: str, record_id: str,
+) -> list[ValueChange]:
+    """Replace each affiliation the resolver is sure of by its ROR id, in
+    place, and return one logged change per replacement."""
+    changes = []
+    for index, (creator, n) in enumerate(zip(creators, positions, strict=True)):
+        for slot, affiliation in enumerate(creator.get("affiliations", [])):
+            text = affiliation.get("name", "")
+            match = ror.resolve(text)
+            if match is None:
+                continue
+            creator["affiliations"][slot] = {"id": match.ror_id}
+            if match.evidence == "profile":
+                reason = (
+                    f"affiliation replaced by its ROR id — {match.name or text} is fixed "
+                    f"as {match.ror_id} in the profile"
+                )
+            else:
+                found_in = (
+                    "its name and its place together"
+                    if match.detail == "name and place"
+                    else "its name"
+                )
+                reason = (
+                    f"affiliation replaced by its ROR id — matched to "
+                    f"{match.name or match.ror_id}, a ROR API result with every word "
+                    f"of the text in {found_in}"
+                )
+            changes.append(
+                ValueChange(
+                    collection=collection,
+                    record_id=record_id,
+                    source=f"{prefix}{n}_institution",
+                    target=f"/metadata/creators/{index}/affiliations/{slot}",
+                    raw=text,
+                    result={"id": match.ror_id},
+                    action="transformed",
+                    reason=reason,
+                )
+            )
+    return changes
+
+
+def _register_doi_pids(
+    result: ConversionResult, settings: DoiPid, origin: dict[int, str]
+) -> None:
+    """Move each record's existing DOI into its `pids` block.
+
+    A DOI identifies one work, and KC Works matches incoming records on it —
+    so a DOI that several records in this conversion claim is registered for
+    none of them (it stays as a link on each) and every claimant is reported.
+    """
+    claimants: dict[str, list[str]] = {}
+    for records in result.collections.values():
+        for record in records:
+            claim = doi_claim(record)
+            if claim:
+                claimants.setdefault(claim.lower(), []).append(_record_id(record))
+
+    for collection, records in result.collections.items():
+        for record in records:
+            claim = doi_claim(record)
+            if claim is None:
+                continue
+            record_id = _record_id(record)
+            sheet = origin.get(id(record), collection)
+            others = [other for other in claimants[claim.lower()] if other != record_id]
+            if others:
+                outcome = keep_doi_as_link(record)
+                target = "/metadata/identifiers"
+                value: object = {"identifier": f"https://doi.org/{claim}", "scheme": "url"}
+                reason = (
+                    f"DOI also given for record(s) {', '.join(others)} — one DOI cannot "
+                    "identify several records, so it is kept as a link and not registered"
+                )
+                result.issues.append(
+                    Issue(
+                        sheet,
+                        record_id,
+                        f"DOI {claim} is also given for record(s) {', '.join(others)} — "
+                        "not registered as this record's DOI (kept as a link); "
+                        "check which record it belongs to",
+                    )
+                )
+            else:
+                outcome = promote_doi_pid(
+                    record,
+                    provider=settings.provider,
+                    keep_identifiers=settings.keep_identifiers,
+                )
+                target = "/pids/doi"
+                value = dict(record["pids"]["doi"])
+                reason = (
+                    "existing DOI registered as the record's own "
+                    f"({settings.provider}) DOI, in bare form"
+                )
+                for other_doi in outcome.conflicting:
+                    result.issues.append(
+                        Issue(
+                            sheet,
+                            record_id,
+                            f"two different DOIs given: {claim} is registered as the "
+                            f"record's DOI, {other_doi} is kept as a link",
+                        )
+                    )
+            result.value_changes.append(
+                ValueChange(
+                    collection=collection,
+                    record_id=record_id,
+                    source="DOI",
+                    target=target,
+                    raw="; ".join(
+                        f"{entry.get('scheme')}: {entry.get('identifier')}"
+                        for entry in outcome.consumed
+                    ),
+                    result=value,
+                    action="transformed",
+                    reason=reason,
+                )
+            )
 
 
 def _route_rows(
@@ -202,11 +355,34 @@ def _collection_slug(table: Table, sheet_profile: SheetProfile) -> str:
     return _slugify(table.name)
 
 
+def _needs_review(
+    source: str, transform: str, args: dict, raw: str, value: object
+) -> str | None:
+    """A message for the issue list when a value was left out for a reason a
+    person should look at (as opposed to routine normalization)."""
+    if not raw or value is not None:
+        return None
+    if transform == "identifier" and args.get("normalize") == "doi":
+        return f"{source} value {raw!r} is not a readable DOI — omitted"
+    if transform == "rights_statement":
+        excerpt = raw if len(raw) <= 60 else raw[:60] + "…"
+        return (
+            f"{source} text does not read as a copyright or rights statement — "
+            f"not imported as copyright: {excerpt!r}"
+        )
+    return None
+
+
 def _describe_change(
     transform: str, args: dict, raw: str, value: object, row: dict[str, str], as_of: str
 ) -> str:
     """Human explanation for why a transformed value differs from its source."""
     if transform == "edtf_date":
+        if not raw:
+            used = next(
+                (c for c in args.get("fallback_columns", []) if row.get(c, "").strip()), "?"
+            )
+            return f"no date in this column — taken from {used} instead"
         season = row.get(args.get("season_column", ""), "").strip()
         if isinstance(value, str) and season and "-2" in value[4:]:
             return f"Bepress year-placeholder date refined to EDTF season using {season!r}"
@@ -215,10 +391,25 @@ def _describe_change(
         return "date normalized to EDTF"
     if transform == "identifier":
         scheme = args.get("scheme", "identifier")
-        if args.get("normalize") == "doi" and isinstance(value, dict) and value.get(
-            "identifier"
-        ) != raw:
-            return f"DOI normalized to bare form and recorded as a {scheme} identifier"
+        result_scheme = value.get("scheme") if isinstance(value, dict) else None
+        if args.get("normalize") == "doi":
+            if value is None:
+                return "no readable DOI in this cell — value omitted"
+            if result_scheme == "url":
+                if value.get("identifier") != raw:
+                    return "a PubMed id, not a DOI — linked as a PubMed URL"
+                return "a link, not a DOI — kept as a url identifier"
+            if value.get("identifier") != raw:
+                return f"DOI normalized to bare form and recorded as a {scheme} identifier"
+        if scheme == "url":
+            if value is None:
+                if args.get("doi_references") and is_resolver_address(raw):
+                    return "DOI link whose DOI cannot be read — value omitted"
+                return "not a valid http(s) URL — value omitted"
+            if result_scheme == "doi":
+                return "link to a DOI — recorded as the bare DOI"
+            if value.get("identifier") != raw:
+                return "first web link recovered from the cell and recorded as a url identifier"
         return f"recorded as a {scheme} identifier"
     if transform == "split":
         if "join" in args:
@@ -226,6 +417,18 @@ def _describe_change(
         return f"split into separate items on {args.get('sep', ',')!r}"
     if transform == "strip_html":
         return "HTML markup removed"
+    if transform == "rights_statement":
+        if value is None:
+            return (
+                "does not read as a copyright or rights statement — kept out of the "
+                "copyright field"
+            )
+        return "HTML markup removed"
+    if transform == "misplaced_description":
+        return (
+            "descriptive text found in a rights column, and the record has no abstract "
+            "of its own — used as the description"
+        )
     if transform == "additional_description":
         return "HTML removed; stored as an additional description"
     if transform == "url":
@@ -247,6 +450,23 @@ def _describe_change(
         return f"imported as a namespaced tag ({args.get('prefix', '')})"
     if transform == "author_institution":
         return "taken from the first non-empty author institution column"
+    if transform == "doi_mention":
+        return "a DOI was written into this cell — recorded as the work's DOI"
+    if transform == "publisher":
+        match = publisher_evidence(row, args)
+        if match is None and not raw:
+            return (
+                "no publisher given in the export and nothing in the row identifies "
+                "one — the profile's fallback publisher is used"
+            )
+        if match is None:
+            return "publisher as given in the export"
+        clue = {
+            "statement": f"the copyright statement names {match.detail!r}",
+            "doi": f"the DOI prefix {match.detail} belongs to this publisher",
+            "link": f"the link points at this publisher's site ({match.detail})",
+        }[match.evidence]
+        return f"no publisher given in the export — inferred: {clue}"
     if transform == "license_url":
         if value is None:
             return "license URL not recognized — value omitted"
@@ -262,6 +482,7 @@ def _convert_sheet(
     issues: list[Issue],
     collection: str,
     value_changes: list[ValueChange],
+    ror: RorResolver | None = None,
 ) -> list[dict]:
     records = []
     for row in table.rows:
@@ -287,7 +508,13 @@ def _convert_sheet(
                 args.setdefault("as_of", as_of)
             if mapping.transform:
                 value = apply_transform(mapping.transform, raw, row, args)
-                if raw and value != raw:
+                derived = not raw and value is not None and derives_value(mapping.transform)
+                opportunistic = is_opportunistic(mapping.transform)
+                passed_over = value is None and opportunistic
+                # a value an opportunistic transform does pick up has been
+                # re-routed, which is worth recording even if unaltered
+                changed = value != raw or (opportunistic and value is not None)
+                if (raw or derived) and changed and not passed_over:
                     value_changes.append(
                         ValueChange(
                             collection=collection,
@@ -302,6 +529,9 @@ def _convert_sheet(
                             ),
                         )
                     )
+                concern = _needs_review(mapping.source, mapping.transform, args, raw, value)
+                if concern:
+                    issues.append(Issue(table.name, record_id, concern))
             else:
                 value = raw or None
             if value is not None:
@@ -314,6 +544,13 @@ def _convert_sheet(
         creators = build_creators(row, defaults.authors)
         if creators:
             record["metadata"]["creators"] = creators
+            if ror is not None:
+                value_changes.extend(
+                    _use_ror_ids(
+                        creators, creator_positions(row, defaults.authors),
+                        defaults.authors.prefix, ror, collection, record_id,
+                    )
+                )
         if sheet.contributors:
             contributors = build_contributors(row, sheet.contributors)
             if contributors:
@@ -322,15 +559,48 @@ def _convert_sheet(
             journal = build_journal(row, sheet.journal)
             if journal:
                 set_pointer(record, "/custom_fields/journal:journal", journal)
+            for column, cell in implausible_journal_values(row, sheet.journal):
+                excerpt = cell if len(cell) <= 60 else cell[:60] + "…"
+                issues.append(
+                    Issue(
+                        table.name,
+                        record_id,
+                        f"{column} value {excerpt!r} is not a volume, issue or page "
+                        "reference — omitted",
+                    )
+                )
+                value_changes.append(
+                    ValueChange(
+                        collection=collection,
+                        record_id=record_id,
+                        source=column,
+                        target="/custom_fields/journal:journal",
+                        raw=cell,
+                        result=None,
+                        action="dropped",
+                        reason="not a volume, issue or page reference — value omitted",
+                    )
+                )
         if sheet.imprint:
             imprint = build_imprint(row, sheet.imprint)
             if imprint:
                 set_pointer(record, "/custom_fields/imprint:imprint", imprint)
         for pointer, constant in sheet.constants.items():
             set_pointer(record, pointer, constant)
+        record["metadata"]["identifiers"] = _without_repeats(record["metadata"]["identifiers"])
 
         records.append(record)
     return records
+
+
+def _without_repeats(identifiers: list[dict]) -> list[dict]:
+    """The identifier list with exact repeats removed (the same link given in
+    two columns is still one identifier)."""
+    unique: list[dict] = []
+    for entry in identifiers:
+        if entry not in unique:
+            unique.append(entry)
+    return unique
 
 
 def _apply_resource_type(

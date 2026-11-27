@@ -26,6 +26,33 @@
 #     exports, so that identifier mapping is dropped
 #   - author columns run to author72 in this export (max = 72 below)
 #
+# Import-readiness rules (KC Works streamlined Import API):
+#   - [defaults.doi_pid]: a work that already has a DOI carries it in
+#     `pids.doi` (provider "external"), in bare form, so KC Works keeps that
+#     DOI instead of minting a second one. The DOI comes from the `doi` column
+#     or from a `pub_link` that points at a DOI resolver (doi.org /
+#     dx.doi.org, with or without http(s)://); it is then removed from
+#     metadata.identifiers. The `doi` field is listed before `pub_link` in
+#     each group so the doi column wins if the two ever disagree.
+#   - publisher: KC Works needs a publisher to register a DOI for a record
+#     that has none of its own. Bepress article rows do not name one, so the
+#     `publisher` transform infers it — from a copyright statement naming it,
+#     the DOI's registrant prefix, or a link to the publisher's platform (the
+#     list is src/bepress_importer/vocab/publishers.toml). Rows with no such
+#     trace are left without a publisher.
+#   - copyright: only text that reads as a rights statement is imported as
+#     copyright; an abstract typed into the statement column becomes the
+#     description when the row has none.
+#   - Bucknell's own work (theses, DSSRF and digital-scholarship projects,
+#     the Bucknell: Occupied podcast) has no outside publisher, so "Bucknell
+#     University" is set as a constant for those groups.
+#   - titles are reduced to plain text; keywords are split on commas and
+#     semicolons; library-proxy links are made public; page/volume cells that
+#     hold remarks rather than numbers are left out.
+#   - document types: Bucknell's cleaned export uses some KC Works type names
+#     directly (poeticWork, videoRecording...); these are mapped alongside the
+#     Bepress names.
+#
 # Deliberately unmapped columns (documented, not accidental): the export
 # contains dozens of sparsely-used per-collection columns (exhibition,
 # performance, patent, geodata fields, workflow/admin fields such as
@@ -43,9 +70,41 @@ record_id.column = "context_key"
 files_enabled = false
 season_style = "edtf-season"
 
+[defaults.doi_pid]
+provider = "external"
+
+# Creators' affiliations carry a ROR id ({"id": "…"}) instead of the name
+# wherever the institution is certain.
+#   - Bucknell's id is fixed here and never looked up. An affiliation counts
+#     as Bucknell when it is one of these names, or has one as a
+#     comma-separated part ("Biology Department, Bucknell University"). Joint
+#     bodies such as the Geisinger-Bucknell institute are deliberately not
+#     listed.
+#   - every other affiliation is put to the ROR API's affiliation matcher.
+#     Of the organisations it returns, one is taken when every word of the
+#     affiliation text is in its name, or in its name and its place together
+#     ("University of Minnesota - Duluth" → University of Minnesota, Duluth,
+#     although ROR's own first choice is the Twin Cities university). Aliases
+#     and acronyms do not count ("NC State" is an alias of North Central State
+#     College). "the", "at", "main" and "campus" are passed over ("The
+#     Pennsylvania State University", "… - Main Campus"), and a single word
+#     is taken only when it is the whole name ("Exeter" is not Phillips
+#     Exeter Academy). A text no result answers to stays as text. Answers are cached
+#     (see `convert --ror-cache`), so each text is asked about once.
+#   - an institution the rule leaves as text can be fixed by hand: add its
+#     ROR id and the spellings used to ror_ids below.
+[defaults.affiliations]
+ror_lookup = true
+
+  [defaults.affiliations.ror_ids]
+  "00fc1qt65" = ["Bucknell University", "Bucknell", "Bucknell U", "Bucknell Univ"]
+
+# corporate authors appear only in the `authors` JSON column (their numbered
+# author columns are blank), so that column is read for them
 [defaults.author_columns]
 prefix = "author"
 max = 72
+json_column = "authors"
 
 # ---------------------------------------------------------------- journals
 [[sheet]]
@@ -60,12 +119,36 @@ select = { column = "publication", values = ["fac_journ"] }
 
   [sheet.resource_type]
   column = "document_type"
-  map = { article = "textDocument-journalArticle", journalarticle = "textDocument-journalArticle", book_contribution = "textDocument-bookSection", popular_press = "textDocument-magazineArticle", bookreview = "textDocument-review", editorial = "textDocument-editorial", other = "textDocument-other" }
   default = "textDocument-journalArticle"
+
+  [sheet.resource_type.map]
+  article = "textDocument-journalArticle"
+  journalarticle = "textDocument-journalArticle"
+  book_contribution = "textDocument-bookSection"
+  popular_press = "textDocument-magazineArticle"
+  bookreview = "textDocument-review"
+  editorial = "textDocument-editorial"
+  other = "textDocument-other"
+  # KC Works type names used directly in the cleaned export
+  journalArticle = "textDocument-journalArticle"
+  poeticWork = "textDocument-poeticWork"
+  review = "textDocument-review"
+  essay = "textDocument-essay"
+  book = "textDocument-book"
+  bookSection = "textDocument-bookSection"
+  onlinePublication = "textDocument-onlinePublication"
+  interactiveResource = "other-interactiveResource"
+  videoRecording = "audiovisual-videoRecording"
+  musicalRecording = "audiovisual-musicalRecording"
+  patent = "other-patent"
+  proceedingsPaper = "textDocument-conferenceProceeding"
+  conferencePoster = "presentation-conferencePoster"
+  "textDocument/other" = "textDocument-other"
 
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   [[sheet.field]]
@@ -75,16 +158,27 @@ select = { column = "publication", values = ["fac_journ"] }
   args = { season_column = "season" }
   required = true
 
+  # an abstract typed into the publication-statement column is used as the
+  # description, but only when the row has no abstract (which is applied
+  # after it and so always wins)
+  [[sheet.field]]
+  source = "pub_statement"
+  target = "/metadata/description"
+  transform = "misplaced_description"
+  args = { unless_columns = ["abstract"] }
+  append = true
+
   [[sheet.field]]
   source = "abstract"
   target = "/metadata/description"
   transform = "strip_html"
+  append = true
 
   [[sheet.field]]
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
 
   [[sheet.field]]
   source = "disciplines"
@@ -96,19 +190,42 @@ select = { column = "publication", values = ["fac_journ"] }
   source = "department"
   target = "/custom_fields/kcr:institution_department"
 
-  [[sheet.field]]
-  source = "pub_link"
-  target = "/metadata/identifiers"
-  transform = "identifier"
-  args = { scheme = "url" }
-  append = true
-
+  # doi before pub_link: the doi column wins if the two name different DOIs
   [[sheet.field]]
   source = "doi"
   target = "/metadata/identifiers"
   transform = "identifier"
   args = { scheme = "doi", normalize = "doi" }
   append = true
+
+  [[sheet.field]]
+  source = "pub_link"
+  target = "/metadata/identifiers"
+  transform = "identifier"
+  args = { scheme = "url", doi_references = true, find_url = true, unproxy = ["ezproxy.bucknell.edu"] }
+  append = true
+
+  # a few rows have the DOI typed into the volume or issue cell
+  # ("Online First: doi:10…") and nowhere else
+  [[sheet.field]]
+  source = "volnum"
+  target = "/metadata/identifiers"
+  transform = "doi_mention"
+  append = true
+
+  [[sheet.field]]
+  source = "issnum"
+  target = "/metadata/identifiers"
+  transform = "doi_mention"
+  append = true
+
+  [[sheet.field]]
+  source = "publisher"
+  target = "/metadata/publisher"
+  transform = "publisher"
+  # add `fallback = "…"` to these args to name a publisher for the rows that
+  # nothing identifies (KC Works cannot register a DOI without one)
+  args = { statement_columns = ["pub_statement"], doi_columns = ["doi", "volnum", "issnum"], link_columns = ["pub_link"] }
 
   [[sheet.field]]
   source = "comments"
@@ -125,7 +242,7 @@ select = { column = "publication", values = ["fac_journ"] }
   [[sheet.field]]
   source = "pub_statement"
   target = "/metadata/copyright"
-  transform = "strip_html"
+  transform = "rights_statement"
 
   [[sheet.field]]
   source = "embargo_date"
@@ -162,6 +279,7 @@ select = { column = "publication", values = ["masters_theses"] }
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   [[sheet.field]]
@@ -180,7 +298,7 @@ select = { column = "publication", values = ["masters_theses"] }
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
 
   [[sheet.field]]
   source = "disciplines"
@@ -221,6 +339,10 @@ select = { column = "publication", values = ["masters_theses"] }
   source = "embargo_date"
   target = "/access"
   transform = "embargo"
+
+  # no outside publisher: KC Works needs one to register the record's DOI
+  [sheet.constants]
+  "/metadata/publisher" = "Bucknell University"
 
 [[sheet]]
 match = "*"
@@ -245,6 +367,7 @@ select = { column = "publication", values = ["honors_theses"] }
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   [[sheet.field]]
@@ -263,7 +386,7 @@ select = { column = "publication", values = ["honors_theses"] }
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
 
   [[sheet.field]]
   source = "disciplines"
@@ -305,6 +428,10 @@ select = { column = "publication", values = ["honors_theses"] }
   target = "/access"
   transform = "embargo"
 
+  # no outside publisher: KC Works needs one to register the record's DOI
+  [sheet.constants]
+  "/metadata/publisher" = "Bucknell University"
+
 # ---------------------------------------------------------------- books
 [[sheet]]
 match = "*"
@@ -322,6 +449,7 @@ select = { column = "publication", values = ["books"] }
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   [[sheet.field]]
@@ -340,7 +468,7 @@ select = { column = "publication", values = ["books"] }
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
 
   [[sheet.field]]
   source = "disciplines"
@@ -392,6 +520,7 @@ select = { column = "publication", values = ["bucknell-press"] }
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   [[sheet.field]]
@@ -410,7 +539,7 @@ select = { column = "publication", values = ["bucknell-press"] }
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
   append = true
 
   [[sheet.field]]
@@ -483,12 +612,13 @@ select = { column = "publication", values = ["bucknell_digital_scholarship"] }
 
   [sheet.resource_type]
   column = "document_type"
-  map = {}
+  map = { interactiveResource = "other-interactiveResource" }
   default = "other-interactiveResource"
 
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   [[sheet.field]]
@@ -507,7 +637,7 @@ select = { column = "publication", values = ["bucknell_digital_scholarship"] }
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
 
   [[sheet.field]]
   source = "disciplines"
@@ -552,6 +682,10 @@ select = { column = "publication", values = ["bucknell_digital_scholarship"] }
   transform = "split"
   args = { sep = "," }
 
+  # no outside publisher: KC Works needs one to register the record's DOI
+  [sheet.constants]
+  "/metadata/publisher" = "Bucknell University"
+
 # ------------------------------------------------------------- DSSRF
 [[sheet]]
 match = "*"
@@ -565,12 +699,13 @@ select = { column = "publication", values = ["dssrf"] }
 
   [sheet.resource_type]
   column = "document_type"
-  map = { digital_project = "other-interactiveResource" }
+  map = { digital_project = "other-interactiveResource", interactiveResource = "other-interactiveResource" }
   default = "other-interactiveResource"
 
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   [[sheet.field]]
@@ -589,7 +724,7 @@ select = { column = "publication", values = ["dssrf"] }
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
 
   [[sheet.field]]
   source = "disciplines"
@@ -631,6 +766,10 @@ select = { column = "publication", values = ["dssrf"] }
   target = "/metadata/rights"
   transform = "license_url"
 
+  # no outside publisher: KC Works needs one to register the record's DOI
+  [sheet.constants]
+  "/metadata/publisher" = "Bucknell University"
+
 # ---------------------------------------------------------------- podcasts
 [[sheet]]
 match = "*"
@@ -650,6 +789,7 @@ select = { column = "publication", values = ["bucknell-occupied"] }
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   [[sheet.field]]
@@ -668,7 +808,7 @@ select = { column = "publication", values = ["bucknell-occupied"] }
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
 
   [[sheet.field]]
   source = "disciplines"
@@ -713,6 +853,10 @@ select = { column = "publication", values = ["bucknell-occupied"] }
   source = "distribution_license"
   target = "/metadata/rights"
   transform = "license_url"
+
+  # no outside publisher: KC Works needs one to register the record's DOI
+  [sheet.constants]
+  "/metadata/publisher" = "Bucknell University"
 
 # ------------------------------------------------------- everything else
 # Rows from collections without client-specific instructions: the generic
@@ -792,19 +936,37 @@ require_columns = ["context_key", "state", "document_type"]
   "Program (Publication)" = "textDocument-other"
   response = "textDocument-other"
   letter = "textDocument-other"
+  # a whole journal issue deposited as one item
+  journal = "textDocument-other"
+  # KC Works type names used directly in the cleaned export
+  journalArticle = "textDocument-journalArticle"
+  poeticWork = "textDocument-poeticWork"
+  review = "textDocument-review"
+  bookSection = "textDocument-bookSection"
+  onlinePublication = "textDocument-onlinePublication"
+  interactiveResource = "other-interactiveResource"
+  videoRecording = "audiovisual-videoRecording"
+  musicalRecording = "audiovisual-musicalRecording"
+  patent = "other-patent"
+  proceedingsPaper = "textDocument-conferenceProceeding"
+  conferencePoster = "presentation-conferencePoster"
+  "textDocument/other" = "textDocument-other"
 
   [[sheet.field]]
   source = "title"
   target = "/metadata/title"
+  transform = "plain_text"
   required = true
 
   # events (conferences, exhibitions...) carry no publication_date; their
-  # start_date is the closest equivalent
+  # start_date is the closest equivalent. Items with neither (some student
+  # journal issues) take the date they were posted to Digital Commons, since
+  # KC Works will not accept a record without a date.
   [[sheet.field]]
   source = "publication_date"
   target = "/metadata/publication_date"
   transform = "edtf_date"
-  args = { season_column = "season", fallback_columns = ["start_date"] }
+  args = { season_column = "season", fallback_columns = ["start_date", "date_posted"] }
   required = true
 
   [[sheet.field]]
@@ -816,7 +978,7 @@ require_columns = ["context_key", "state", "document_type"]
   source = "keywords"
   target = "/custom_fields/kcr:user_defined_tags"
   transform = "split"
-  args = { sep = "," }
+  args = { sep = [",", ";"] }
 
   [[sheet.field]]
   source = "disciplines"
@@ -832,9 +994,12 @@ require_columns = ["context_key", "state", "document_type"]
   source = "degree_name"
   target = "/custom_fields/kcr:degree"
 
+  # the export's own publisher where it names one, else inferred
   [[sheet.field]]
   source = "publisher"
   target = "/metadata/publisher"
+  transform = "publisher"
+  args = { doi_columns = ["doi"], link_columns = ["pub_link"] }
 
   [[sheet.field]]
   source = "doi"
@@ -867,7 +1032,7 @@ require_columns = ["context_key", "state", "document_type"]
   target = "/metadata/identifiers"
   append = true
   transform = "identifier"
-  args = { scheme = "url" }
+  args = { scheme = "url", doi_references = true, find_url = true, unproxy = ["ezproxy.bucknell.edu"] }
 
   [[sheet.field]]
   source = "embargo_date"

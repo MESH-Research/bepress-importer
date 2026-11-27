@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from bepress_importer import ror as ror_api
 from bepress_importer.convert import convert_workbook
 from bepress_importer.profiles import ProfileError, detect_profile, load_profile
 from bepress_importer.readers import Workbook, read_workbook
@@ -77,6 +78,31 @@ def _load_profile_or_fail(profile_path: str):
         raise click.ClickException(str(exc)) from exc
 
 
+def _ror_resolver(profile, cache_path: str, lookup: bool) -> ror_api.RorResolver | None:
+    """The affiliation resolver the profile asks for: its fixed ROR ids, plus
+    the lookup cache and (unless lookups are switched off) the ROR API."""
+    settings = profile.defaults.affiliations
+    if settings is None:
+        return None
+    if not settings.ror_lookup:
+        return ror_api.RorResolver(known=settings.ror_ids)
+    cache = None
+    if lookup or Path(cache_path).exists():
+        cache = ror_api.RorCache(cache_path)
+    asked = 0
+
+    def fetch(text: str) -> dict:
+        nonlocal asked
+        asked += 1
+        if asked % 50 == 0:
+            click.echo(f"ROR: {asked} affiliations looked up…", err=True)
+        return ror_api.fetch_affiliation(text)
+
+    return ror_api.RorResolver(
+        known=settings.ror_ids, cache=cache, fetch=fetch if lookup else None
+    )
+
+
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True, dir_okay=False))
 @click.option("--profile", "profile_path", required=True,
@@ -89,14 +115,25 @@ def _load_profile_or_fail(profile_path: str):
 @click.option("--as-of", default=None,
               help="ISO date for embargo-activity decisions (default: today; "
                    "pass explicitly for reproducible output).")
+@click.option("--ror-cache", "ror_cache", default="ror-cache.sqlite3", show_default=True,
+              type=click.Path(dir_okay=False),
+              help="SQLite file remembering every affiliation looked up in the ROR "
+                   "API, so each text is only ever asked about once.")
+@click.option("--no-ror-lookup", is_flag=True,
+              help="Do not contact the ROR API: use only the ROR ids the profile "
+                   "fixes and answers already in the cache.")
 def convert(
     input_file: str, profile_path: str, output_dir: str, sheets: tuple[str, ...],
-    as_of: str | None
+    as_of: str | None, ror_cache: str, no_ror_lookup: bool
 ) -> None:
     """Convert an export to per-collection KC Works JSON.
 
     Writes one JSON file per matched sheet (each targets one KC Works
     collection) plus a report.json of conversion issues.
+
+    When the profile turns on ROR lookups, creators' affiliations are matched
+    against the ROR API (a result is used only when it has every word of the
+    affiliation text) and the answers cached in --ror-cache.
     """
     workbook = read_workbook(input_file)
     if sheets:
@@ -116,7 +153,8 @@ def convert(
             )
     as_of = as_of or datetime.date.today().isoformat()  # noqa: DTZ011
 
-    result = convert_workbook(workbook, profile, as_of=as_of)
+    resolver = _ror_resolver(profile, ror_cache, lookup=not no_ror_lookup)
+    result = convert_workbook(workbook, profile, as_of=as_of, ror=resolver)
     if not result.collections:
         message = (
             f"no sheet in the input matched profile {profile.name!r} "
@@ -159,6 +197,12 @@ def convert(
     write_json(out / "conversion-log.json", payload)
     (out / "conversion-log.txt").write_text(render_text(payload), encoding="utf-8")
 
+    if resolver is not None and resolver.failures:
+        click.echo(
+            f"ROR: {len(set(resolver.failures))} affiliation(s) could not be looked up "
+            "(the ROR API did not answer) — left as text; they will be asked about "
+            "again on the next run"
+        )
     if result.unmatched_sheets:
         click.echo(f"unmatched sheets: {', '.join(result.unmatched_sheets)}")
     click.echo(f"{len(result.issues)} conversion issue(s) → {out / 'report.json'}")

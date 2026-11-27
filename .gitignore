@@ -28,6 +28,8 @@ wrangled/
 wrangling.json
 wrangling.log
 receipts.json
+# ROR lookup cache (affiliation text from client data)
+*.sqlite3
 
 # Client instruction documents — never commit
 *.odt

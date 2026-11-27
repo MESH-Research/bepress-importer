@@ -13,21 +13,50 @@ import re
 from collections.abc import Callable
 
 from bepress_importer import edtf as edtf_module
+from bepress_importer.doi import doi_reference, extract_doi, is_resolver_address
+from bepress_importer.publishers import PublisherMatch, find_publisher
 
 Transform = Callable[[str, dict[str, str], dict], object | None]
 
 TRANSFORMS: dict[str, Transform] = {}
 _ACCEPTS_EMPTY: set[str] = set()
+_DERIVES: set[str] = set()
+_OPPORTUNISTIC: set[str] = set()
 
 
-def transform(name: str, accepts_empty: bool = False) -> Callable[[Transform], Transform]:
+def transform(
+    name: str, accepts_empty: bool = False, derives: bool = False, opportunistic: bool = False
+) -> Callable[[Transform], Transform]:
+    """Register a transform.
+
+    accepts_empty: it runs even when its source cell is empty (it scans the row).
+    derives: a value it produces from an empty cell was worked out from other
+    columns, which is worth recording in the conversion log.
+    opportunistic: it only picks up the occasional value another mapping of
+    the same column passes over, so yielding nothing is not an omission.
+    """
+
     def register(fn: Transform) -> Transform:
         TRANSFORMS[name] = fn
         if accepts_empty:
             _ACCEPTS_EMPTY.add(name)
+        if derives:
+            _DERIVES.add(name)
+        if opportunistic:
+            _OPPORTUNISTIC.add(name)
         return fn
 
     return register
+
+
+def derives_value(name: str) -> bool:
+    """True for transforms whose result from an empty cell should be logged."""
+    return name in _DERIVES
+
+
+def is_opportunistic(name: str) -> bool:
+    """True for transforms whose empty result is not worth logging as dropped."""
+    return name in _OPPORTUNISTIC
 
 
 def known_transforms() -> set[str]:
@@ -43,7 +72,7 @@ def apply_transform(name: str, value: str, row: dict[str, str], args: dict) -> o
     return TRANSFORMS[name](value, row, args)
 
 
-@transform("edtf_date", accepts_empty=True)
+@transform("edtf_date", accepts_empty=True, derives=True)
 def edtf_date(value: str, row: dict[str, str], args: dict) -> object | None:
     """ISO-ish date (+ optional season column) → EDTF; unparseable input passes through.
 
@@ -66,22 +95,88 @@ def edtf_date(value: str, row: dict[str, str], args: dict) -> object | None:
         return value  # left as-is for the wrangler's edtf-date rule to flag
 
 
-_DOI_RE = re.compile(r"(10\.\d{4,9}/\S+)", re.IGNORECASE)
+_URL_RE = re.compile(r"^https?://\S+$")
+_PMID_RE = re.compile(r"^pmid:?\s*(\d+)$", re.IGNORECASE)
+_FIRST_URL_RE = re.compile(r'https?://[^\s"<>]+', re.IGNORECASE)
+_BARE_WWW_RE = re.compile(r"^www\.[\w.-]+\.[a-z]{2,}(?:/\S*)?$", re.IGNORECASE)
+_INVISIBLE = dict.fromkeys(map(ord, "\ufeff\u200b\u200c\u200d\u2060"))
+
+
+def _find_url(value: str) -> str | None:
+    """The first web link in a messy cell, repairing the common typing slips."""
+    text = value.translate(_INVISIBLE).strip()
+    if text.lower().startswith("ttps://"):
+        text = "h" + text
+    if _BARE_WWW_RE.match(text):
+        return "http://" + text
+    match = _FIRST_URL_RE.search(text)
+    return match.group().rstrip(".,;") if match else None
+
+
+def _unproxy(link: str, proxies: list[str]) -> str:
+    """The link with a library proxy removed from its host, so that it works
+    for readers outside the institution.
+
+    "www.jstor.org.ezproxy.example.edu" and the hyphenated form
+    "www-jstor-org.ezproxy.example.edu" both become "www.jstor.org".
+    """
+    match = re.match(r"^(https?://)([^/?#]+)(.*)$", link, re.IGNORECASE)
+    if not match:
+        return link
+    scheme, host, rest = match.groups()
+    for proxy in proxies:
+        suffix = "." + proxy.lower()
+        if host.lower().endswith(suffix):
+            host = host[: -len(suffix)]
+            if "." not in host:
+                host = host.replace("-", ".")
+            return scheme + host + rest
+    return link
 
 
 @transform("identifier")
 def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
-    """Value → {"identifier": ..., "scheme": args["scheme"]}, normalizing DOIs."""
+    """Value → {"identifier": ..., "scheme": args["scheme"]}.
+
+    args.normalize = "doi": the cell is meant to hold a DOI, which is reduced
+    to its bare form. A cell with no readable DOI is not passed off as one: a
+    PubMed id or a plain link is kept as a url identifier, anything else is
+    omitted.
+    args.scheme = "url": only real http(s) links are kept. With
+    args.doi_references a link to a DOI resolver (or a "doi:" label) yields a
+    doi identifier instead; with args.find_url the first link in a messy cell
+    is recovered; args.unproxy lists library-proxy domains to strip from the
+    link's host.
+    """
     if "split" in args:
         value = value.split(args["split"])[0].strip()
         if not value:
             return None
     if args.get("normalize") == "doi":
-        match = _DOI_RE.search(value)
-        if match:
-            value = match.group(1)
-    if args.get("scheme") == "url" and not re.match(r"^https?://\S+$", value):
+        doi = extract_doi(value)
+        if doi:
+            return {"identifier": doi, "scheme": args["scheme"]}
+        pmid = _PMID_RE.match(value)
+        if pmid:
+            return {
+                "identifier": f"https://pubmed.ncbi.nlm.nih.gov/{pmid.group(1)}/",
+                "scheme": "url",
+            }
+        if _URL_RE.match(value) and not is_resolver_address(value):
+            return {"identifier": value, "scheme": "url"}
         return None
+    if args.get("scheme") == "url":
+        if args.get("doi_references"):
+            doi = doi_reference(value)
+            if doi:
+                return {"identifier": doi, "scheme": "doi"}
+            if is_resolver_address(value):
+                return None  # a DOI link whose DOI cannot be read leads nowhere
+        if args.get("find_url"):
+            value = _find_url(value) or ""
+        if not _URL_RE.match(value):
+            return None
+        value = _unproxy(value, args.get("unproxy", []))
     return {"identifier": value, "scheme": args["scheme"]}
 
 
@@ -89,11 +184,14 @@ def identifier(value: str, row: dict[str, str], args: dict) -> object | None:
 def split(value: str, row: dict[str, str], args: dict) -> object | None:
     """Delimited string → list of stripped non-empty items (or re-joined string).
 
+    args.sep is one separator or a list of them (split on any).
     args.also_columns merges values from sibling columns into the list.
     """
     sep = args.get("sep", ",")
+    separators = sep if isinstance(sep, list) else [sep]
+    splitter = re.compile("|".join(re.escape(separator) for separator in separators))
     raw_parts = [value] + [row.get(col, "") for col in args.get("also_columns", [])]
-    items = [item.strip() for part in raw_parts for item in part.split(sep)]
+    items = [item.strip() for part in raw_parts for item in splitter.split(part)]
     items = [item for item in items if item]
     if not items:
         return None
@@ -198,3 +296,105 @@ def license_url(value: str, row: dict[str, str], args: dict) -> object | None:
     if match:
         return [{"id": f"cc0-{match.group('version')}"}]
     return None
+
+
+def publisher_evidence(row: dict[str, str], args: dict) -> PublisherMatch | None:
+    """What the row's own columns say about who published it."""
+    statements = [
+        strip_html(row.get(column, ""), row, {}) or ""
+        for column in args.get("statement_columns", [])
+    ]
+    links = [row.get(column, "") for column in args.get("link_columns", [])]
+    doi_cells = [row.get(column, "") for column in args.get("doi_columns", [])] + links
+    dois = [doi for cell in doi_cells if (doi := extract_doi(cell))]
+    return find_publisher(statements, dois, links)
+
+
+@transform("publisher", accepts_empty=True, derives=True)
+def publisher(value: str, row: dict[str, str], args: dict) -> object | None:
+    """The row's publisher: as given, or else inferred from the row's traces.
+
+    args.statement_columns / doi_columns / link_columns name the columns to
+    search for a copyright statement naming the publisher, a DOI carrying its
+    prefix and a link to its platform (in that order of trust).
+    args.fallback, when given, is used for rows that none of these identify.
+    """
+    if value:
+        return value
+    match = publisher_evidence(row, args)
+    return match.name if match else args.get("fallback")
+
+
+# words that only a rights statement uses, and words it shares with ordinary
+# prose (which therefore only count in a short text)
+_RIGHTS_WORDS = re.compile(
+    r"copyright|©|ⓒ|\(c\)\s*(?:19|20)\d\d|licen[cs]e|permission|all rights reserved|"
+    r"creative commons|\bcc[ -]by\b|\bcc0\b|public domain|open access|fair use|personal use",
+    re.IGNORECASE,
+)
+_PUBLISHING_WORDS = re.compile(
+    r"\bpublished\b|\bpublication\b|\bpublisher|\bversion\b|\bmanuscript\b|"
+    r"\bpre-?print\b|\bpost-?print\b|\baccepted\b|\bembargo|\breprint|\bdeposit|"
+    r"available (?:online )?at\b|first appeared|\bpeer[- ]review|\brights\b",
+    re.IGNORECASE,
+)
+_STATEMENT_LENGTH = 400
+
+
+def reads_as_rights_statement(text: str) -> bool:
+    """True when `text` is the kind of thing a copyright field should hold:
+    a copyright line, a licence, a permission or version note — as opposed to
+    an abstract, a journal title or a stray remark."""
+    if _RIGHTS_WORDS.search(text):
+        return True
+    return len(text) <= _STATEMENT_LENGTH and bool(_PUBLISHING_WORDS.search(text))
+
+
+@transform("rights_statement")
+def rights_statement(value: str, row: dict[str, str], args: dict) -> object | None:
+    """Copyright/rights text with HTML removed — kept only if it reads as one."""
+    text = strip_html(value, row, {})
+    return text if text and reads_as_rights_statement(text) else None
+
+
+@transform("misplaced_description", opportunistic=True)
+def misplaced_description(value: str, row: dict[str, str], args: dict) -> object | None:
+    """Descriptive prose typed into a rights column, rescued as a description.
+
+    Yields the text only when it does not read as a rights statement, is
+    long enough to be prose (args.min_length, default 80 characters) and none
+    of args.unless_columns (the row's real abstract) has content.
+    """
+    text = strip_html(value, row, {})
+    if not text or reads_as_rights_statement(text):
+        return None
+    if len(text) < args.get("min_length", 80):
+        return None
+    if any(row.get(column, "").strip() for column in args.get("unless_columns", [])):
+        return None
+    return text
+
+
+_ANY_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+_INLINE_TAG_RE = re.compile(
+    r"</?(?:em|i|b|u|strong|sub|sup|span|small|font|a|cite|code)\b[^>]*>", re.IGNORECASE
+)
+
+
+@transform("plain_text")
+def plain_text(value: str, row: dict[str, str], args: dict) -> object | None:
+    """A one-line plain-text value (a title): markup removed without breaking
+    words apart ("H<sub>2</sub>O" → "H2O"), entities unescaped, runs of
+    whitespace collapsed."""
+    text = _INLINE_TAG_RE.sub("", value)
+    text = html.unescape(_ANY_TAG_RE.sub(" ", text))
+    return " ".join(text.split()) or None
+
+
+@transform("doi_mention", opportunistic=True)
+def doi_mention(value: str, row: dict[str, str], args: dict) -> object | None:
+    """A DOI written into a cell meant for something else (a volume number
+    replaced by "Online First: doi:10…") → doi identifier; any other cell is
+    passed over in silence."""
+    doi = extract_doi(value)
+    return {"identifier": doi, "scheme": "doi"} if doi else None

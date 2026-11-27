@@ -18,6 +18,7 @@ from bepress_importer.convert import (
     _collection_slug,
     _convert_sheet,
     get_pointer,
+    offline_ror_resolver,
     set_pointer,
 )
 from bepress_importer.profiles import Profile, SheetProfile
@@ -79,7 +80,7 @@ def explain_record(
         slug = _collection_slug(one_row, block)
         record = _convert_sheet(
             one_row, block, profile.defaults, as_of, issues=[], collection=slug,
-            value_changes=[],
+            value_changes=[], ror=offline_ror_resolver(profile.defaults),
         )[0]
         missing = tuple(
             f.target

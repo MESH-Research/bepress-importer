@@ -41,6 +41,9 @@ class ResourceTypeMapping:
 class AuthorColumns:
     prefix: str = "author"
     max: int = 32
+    # a column holding the author list as JSON; corporate authors appear only
+    # there in some exports (their numbered columns are left blank)
+    json_column: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,12 +93,40 @@ class RowSelect:
 
 
 @dataclass(frozen=True)
+class DoiPid:
+    """Register each record's existing DOI in its `pids` block.
+
+    provider: who registered the DOI ("external" for DOIs minted elsewhere,
+    e.g. by a journal's publisher). keep_identifiers leaves the DOI entries in
+    metadata.identifiers as well.
+    """
+
+    provider: str = "external"
+    keep_identifiers: bool = False
+
+
+@dataclass(frozen=True)
 class Defaults:
     record_id_column: str = "context_key"
     url_column: str | None = None
     files_enabled: bool = False
     season_style: str = "edtf-season"
     authors: AuthorColumns = field(default_factory=AuthorColumns)
+    doi_pid: DoiPid | None = None
+    affiliations: Affiliations | None = None
+
+
+@dataclass(frozen=True)
+class Affiliations:
+    """How creators' affiliations get ROR ids.
+
+    ror_ids: {ror_id: names} — institutions whose id is fixed here, so no
+    lookup is ever made for them. ror_lookup: look every other affiliation up
+    in the ROR API (cached).
+    """
+
+    ror_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    ror_lookup: bool = False
 
 
 @dataclass(frozen=True)
@@ -185,7 +216,7 @@ def load_profile(path: str | Path, known_transforms: set[str] | None = None) -> 
     if not name:
         raise ProfileError(f"{path}: [profile] section with a 'name' key is required")
 
-    defaults = _parse_defaults(data.get("defaults", {}))
+    defaults = _parse_defaults(data.get("defaults", {}), path)
     sheets = tuple(
         _parse_sheet(path, i, raw, known_transforms)
         for i, raw in enumerate(data.get("sheet", []))
@@ -198,8 +229,32 @@ def load_profile(path: str | Path, known_transforms: set[str] | None = None) -> 
     )
 
 
-def _parse_defaults(raw: dict) -> Defaults:
+def _parse_affiliations(raw: dict | None, path: Path) -> Affiliations | None:
+    if raw is None:
+        return None
+    ror_ids = {}
+    for ror_id, names in raw.get("ror_ids", {}).items():
+        if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+            raise ProfileError(
+                f"{path}: [defaults.affiliations.ror_ids] {ror_id!r} must list the "
+                "names the institution goes by"
+            )
+        ror_ids[ror_id] = tuple(names)
+    return Affiliations(
+        ror_ids=ror_ids,
+        ror_lookup=bool(raw.get("ror_lookup", False)),
+    )
+
+
+def _parse_defaults(raw: dict, path: Path) -> Defaults:
     authors_raw = raw.get("author_columns", {})
+    doi_pid_raw = raw.get("doi_pid")
+    doi_pid = None
+    if doi_pid_raw is not None:
+        doi_pid = DoiPid(
+            provider=doi_pid_raw.get("provider", "external"),
+            keep_identifiers=doi_pid_raw.get("keep_identifiers", False),
+        )
     return Defaults(
         record_id_column=raw.get("record_id", {}).get("column", "context_key"),
         url_column=raw.get("url_identifier", {}).get("column"),
@@ -208,7 +263,10 @@ def _parse_defaults(raw: dict) -> Defaults:
         authors=AuthorColumns(
             prefix=authors_raw.get("prefix", "author"),
             max=authors_raw.get("max", 32),
+            json_column=authors_raw.get("json_column"),
         ),
+        doi_pid=doi_pid,
+        affiliations=_parse_affiliations(raw.get("affiliations"), path),
     )
 
 
